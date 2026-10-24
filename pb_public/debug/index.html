@@ -1,0 +1,863 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hooks Debugger</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐞</text></svg>" />
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --surface: #ffffff;
+      --surface-2: #eef0f3;
+      --text: #1b1f24;
+      --muted: #66707c;
+      --border: #dde1e6;
+      --accent: #2f6fde;
+      --accent-soft: #e5eeff;
+      --bp: #e03131;
+      --paused-bg: #fff4c2;
+      --paused-border: #f0b400;
+      --ok: #2f9e44;
+      --c-kw: #a626a4;
+      --c-str: #50a14f;
+      --c-num: #b76b01;
+      --c-com: #8c939c;
+      --c-re: #0184bc;
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111317;
+        --surface: #181b20;
+        --surface-2: #20242b;
+        --text: #e6e9ee;
+        --muted: #8b95a2;
+        --border: #2c313a;
+        --accent: #6ea2ff;
+        --accent-soft: #1d2a44;
+        --bp: #ff6b6b;
+        --paused-bg: #3a3214;
+        --paused-border: #d9a300;
+        --ok: #51cf66;
+        --c-kw: #c678dd;
+        --c-str: #98c379;
+        --c-num: #d19a66;
+        --c-com: #6b7480;
+        --c-re: #56b6c2;
+      }
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    button, input, select, textarea { font: inherit; color: inherit; }
+    button {
+      background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px;
+      padding: 5px 11px; cursor: pointer; white-space: nowrap;
+    }
+    button:hover:not(:disabled) { border-color: var(--accent); }
+    button:disabled { opacity: .5; cursor: default; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+    input, select, textarea {
+      background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; min-width: 0;
+    }
+    input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+    kbd { font-family: var(--mono); font-size: .75em; color: var(--muted); }
+
+    /* Login */
+    .login { display: grid; place-items: center; min-height: 100%; padding: 16px; }
+    .login form {
+      width: 100%; max-width: 360px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px; display: grid; gap: 12px;
+    }
+    .login h1 { margin: 0; font-size: 1.3rem; }
+    .login p { margin: 0; color: var(--muted); }
+    .err { color: var(--bp); min-height: 1.2em; margin: 0; font-size: .9rem; }
+
+    /* App layout */
+    .app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+    header.top {
+      display: flex; align-items: center; gap: 12px; padding: 8px 16px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+    }
+    header.top h1 { font-size: 1rem; margin: 0; }
+    .conn { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .85rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .dot.on { background: var(--ok); }
+    .spacer { flex: 1; }
+    .main { display: grid; grid-template-columns: 220px minmax(0, 1fr) 380px; min-height: 0; }
+    .pane { min-height: 0; overflow: auto; border-right: 1px solid var(--border); }
+    .pane:last-child { border-right: 0; }
+    .pane h2 {
+      font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+      margin: 0; padding: 12px 14px 6px;
+    }
+
+    /* Files */
+    .files { list-style: none; margin: 0; padding: 0 6px 12px; }
+    .files li button {
+      width: 100%; text-align: left; background: none; border: 1px solid transparent;
+      display: flex; gap: 6px; align-items: center; font-family: var(--mono); font-size: .85rem;
+    }
+    .files li button.active { background: var(--accent-soft); border-color: var(--accent); }
+    .badge {
+      margin-left: auto; font-family: system-ui, sans-serif; font-size: .68rem; padding: 0 6px;
+      border-radius: 999px; background: var(--ok); color: #fff;
+    }
+
+    /* Code */
+    .code-pane { display: grid; grid-template-rows: auto 1fr; background: var(--surface); }
+    .toolbar {
+      display: flex; align-items: center; gap: 10px; padding: 8px 12px; flex-wrap: wrap;
+      border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 1;
+    }
+    .toolbar .name { font-family: var(--mono); font-weight: 600; }
+    .toolbar .hint { color: var(--muted); font-size: .85rem; }
+    .code { font: 13px/1.6 var(--mono); padding: 6px 0 40px; overflow: auto; min-height: 0; }
+    .ln { display: grid; grid-template-columns: 62px 1fr; white-space: pre; }
+    .ln .gut {
+      position: relative; text-align: right; padding-right: 14px; color: var(--muted);
+      user-select: none; font-variant-numeric: tabular-nums;
+    }
+    .ln.can .gut { cursor: pointer; }
+    .ln.can .gut:hover::before {
+      content: ""; position: absolute; left: 8px; top: 50%; width: 10px; height: 10px; margin-top: -5px;
+      border-radius: 50%; background: var(--bp); opacity: .35;
+    }
+    .ln.bp .gut::before {
+      content: ""; position: absolute; left: 8px; top: 50%; width: 10px; height: 10px; margin-top: -5px;
+      border-radius: 50%; background: var(--bp); opacity: 1;
+    }
+    .ln.bp .gut { color: var(--bp); }
+    .ln .src { padding-right: 16px; }
+    .ln.paused { background: var(--paused-bg); box-shadow: inset 3px 0 0 var(--paused-border); }
+    .t-kw { color: var(--c-kw); }
+    .t-str { color: var(--c-str); }
+    .t-num { color: var(--c-num); }
+    .t-com { color: var(--c-com); font-style: italic; }
+    .t-re { color: var(--c-re); }
+    .empty-state { color: var(--muted); padding: 40px 20px; text-align: center; }
+
+    /* Debug panel */
+    .panel section { border-bottom: 1px solid var(--border); padding-bottom: 12px; }
+    .status { padding: 4px 14px 0; }
+    .status .where { font-family: var(--mono); font-size: .85rem; margin: 2px 0 8px; overflow-wrap: anywhere; }
+    .status .state { font-weight: 600; }
+    .status .state.paused { color: var(--paused-border); }
+    .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+    .vars { padding: 0 14px; font: 12.5px/1.5 var(--mono); }
+    .var { border-bottom: 1px dashed var(--border); padding: 3px 0; }
+    .var summary { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .var .k { color: var(--accent); }
+    .var .ty { color: var(--muted); font-size: .9em; }
+    .var pre, .out pre {
+      margin: 4px 0 2px; padding: 6px 8px; background: var(--surface-2); border-radius: 6px;
+      max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+    }
+    .muted { color: var(--muted); }
+    .pad { padding: 0 14px; }
+    .console { display: grid; gap: 6px; padding: 0 14px; }
+    .console .out { font: 12.5px/1.5 var(--mono); max-height: 260px; overflow: auto; }
+    .console .out .q { color: var(--muted); }
+    .console .out .q::before { content: "› "; }
+    .console .out .e { color: var(--bp); white-space: pre-wrap; }
+    .console input { font-family: var(--mono); font-size: 12.5px; width: 100%; }
+    .bplist { list-style: none; margin: 0; padding: 0 14px; font: 12.5px/1.7 var(--mono); }
+    .bplist li { display: flex; gap: 8px; align-items: center; }
+    .bplist a { color: inherit; text-decoration: none; cursor: pointer; }
+    .bplist a:hover { color: var(--accent); }
+    .bplist .x { margin-left: auto; padding: 0 6px; font-size: .8rem; }
+    .runner { display: grid; gap: 6px; padding: 0 14px; }
+    .runner .row { display: flex; gap: 6px; }
+    .runner .row input { flex: 1; font-family: var(--mono); font-size: 12.5px; }
+    .runner textarea { font-family: var(--mono); font-size: 12.5px; min-height: 52px; resize: vertical; }
+    .runner label { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: .85rem; }
+    .runner .out pre { font: 12px/1.45 var(--mono); }
+
+    .toast {
+      position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg);
+      padding: 8px 14px; border-radius: 8px; font-size: .9rem; max-width: calc(100% - 32px); z-index: 10;
+    }
+
+    @media (max-width: 1100px) {
+      .main { grid-template-columns: 200px minmax(0, 1fr); }
+      .panel { grid-column: 1 / -1; border-top: 1px solid var(--border); max-height: 50vh; }
+      .app { height: auto; min-height: 100%; }
+    }
+    @media (max-width: 700px) {
+      .main { grid-template-columns: 1fr; }
+      .pane { border-right: 0; border-bottom: 1px solid var(--border); }
+      .files-pane { max-height: 180px; }
+      .code { max-height: 60vh; }
+      .panel { max-height: none; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Login -->
+  <div class="login" id="login-view" hidden>
+    <form id="login-form">
+      <h1>🐞 Hooks Debugger</h1>
+      <p>Sign in with the instance superuser account.</p>
+      <input type="email" id="login-email" placeholder="Email superuser" autocomplete="username" required />
+      <input type="password" id="login-password" placeholder="Password" autocomplete="current-password" required />
+      <button class="primary" type="submit">Sign in</button>
+      <p class="err" id="login-error" role="alert"></p>
+    </form>
+  </div>
+
+  <!-- App -->
+  <div class="app" id="app-view" hidden>
+    <header class="top">
+      <h1>🐞 Hooks Debugger</h1>
+      <span class="conn"><span class="dot" id="conn-dot"></span><span id="conn-text">connecting…</span></span>
+      <span class="spacer"></span>
+      <span class="muted" id="who"></span>
+      <button id="logout">Sign out</button>
+    </header>
+
+    <div class="main">
+      <aside class="pane files-pane">
+        <h2>pb_hooks</h2>
+        <ul class="files" id="files"></ul>
+      </aside>
+
+      <section class="pane code-pane">
+        <div class="toolbar" id="toolbar" hidden>
+          <span class="name" id="file-name"></span>
+          <button id="toggle-debug"></button>
+          <span class="hint" id="file-hint"></span>
+        </div>
+        <div class="code" id="code">
+          <p class="empty-state">Pick a file on the left.</p>
+        </div>
+      </section>
+
+      <aside class="pane panel">
+        <section>
+          <h2>Execution</h2>
+          <div class="status">
+            <div class="state" id="state">Running</div>
+            <div class="where" id="where">No breakpoint hit.</div>
+            <div class="controls">
+              <button class="primary" id="btn-continue" disabled title="F8">Continue <kbd>F8</kbd></button>
+              <button id="btn-step" disabled title="F10">Step <kbd>F10</kbd></button>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h2>Variables</h2>
+          <div class="vars" id="vars"><p class="muted">Shown while execution is paused.</p></div>
+        </section>
+
+        <section>
+          <h2>Evaluate</h2>
+          <div class="console">
+            <div class="out" id="console-out"></div>
+            <input id="console-input" placeholder="e.g. e.record.get('author')" disabled spellcheck="false" />
+          </div>
+        </section>
+
+        <section>
+          <h2>Breakpoints</h2>
+          <ul class="bplist" id="bplist"></ul>
+        </section>
+
+        <section>
+          <h2>Send a request</h2>
+          <div class="runner">
+            <div class="row">
+              <select id="req-method">
+                <option>GET</option><option selected>POST</option><option>PATCH</option><option>DELETE</option>
+              </select>
+              <input id="req-path" value="/api/collections/messages/records" spellcheck="false" />
+            </div>
+            <textarea id="req-body" spellcheck="false">{"author":"debug","body":"hello from the debugger","mood":"idea"}</textarea>
+            <div class="row">
+              <label><input type="checkbox" id="req-auth" /> as superuser</label>
+              <span class="spacer"></span>
+              <button id="req-send">Send</button>
+            </div>
+            <div class="out" id="req-out"></div>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/acorn@8.19.0/dist/acorn.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pocketbase@0.28.1/dist/pocketbase.umd.js"></script>
+  <script>
+    const pb = new PocketBase(location.origin)
+    pb.autoCancellation(false)
+
+    const $ = (id) => document.getElementById(id)
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+    const PAUSE_MAX_AGE_MS = 5 * 60 * 1000
+    const MARKER = '\n// @dbg-instrumented\n'
+
+    const state = {
+      files: [],
+      file: null,        // { name, source, instrumented }
+      analysis: null,    // { probes: Map(line -> probe), tokens }
+      breakpoints: [],   // records from dbg_breakpoints
+      session: null,     // the currently paused session
+      evalSeq: 0,
+      pendingEvals: new Map(),
+    }
+
+    let toastTimer
+    function toast(msg, ms = 3500) {
+      $('toast').textContent = msg
+      $('toast').hidden = false
+      clearTimeout(toastTimer)
+      toastTimer = setTimeout(() => ($('toast').hidden = true), ms)
+    }
+
+    function api(path, options = {}) {
+      return pb.send(path, options)
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Source analysis: which lines can get probes and which vars we see */
+    /* ------------------------------------------------------------------ */
+
+    const isFn = (n) => n && /^(FunctionDeclaration|FunctionExpression|ArrowFunctionExpression)$/.test(n.type)
+
+    function childNodes(node) {
+      const out = []
+      for (const key in node) {
+        if (key === 'loc' || key === 'start' || key === 'end' || key === 'type') continue
+        const v = node[key]
+        if (Array.isArray(v)) v.forEach((x) => x && typeof x.type === 'string' && out.push(x))
+        else if (v && typeof v.type === 'string') out.push(v)
+      }
+      return out
+    }
+
+    function patternNames(p, out) {
+      if (!p) return out
+      if (p.type === 'Identifier') out.push(p.name)
+      else if (p.type === 'ObjectPattern') p.properties.forEach((pr) => patternNames(pr.type === 'RestElement' ? pr.argument : pr.value, out))
+      else if (p.type === 'ArrayPattern') p.elements.forEach((el) => patternNames(el, out))
+      else if (p.type === 'RestElement') patternNames(p.argument, out)
+      else if (p.type === 'AssignmentPattern') patternNames(p.left, out)
+      return out
+    }
+
+    // Names declared in a function (params + body declarations, excluding
+    // nested functions). Those not in scope at a given line are dropped on
+    // the server (ReferenceError).
+    function scopeNames(fn) {
+      const names = []
+      fn.params.forEach((p) => patternNames(p, names))
+      ;(function walk(node) {
+        childNodes(node).forEach((child) => {
+          if (child.type === 'VariableDeclaration') child.declarations.forEach((d) => patternNames(d.id, names))
+          if (child.type === 'FunctionDeclaration' && child.id) { names.push(child.id.name); return }
+          if (child.type === 'ClassDeclaration' && child.id) names.push(child.id.name)
+          if (child.type === 'CatchClause' && child.param) patternNames(child.param, names)
+          if (isFn(child)) return
+          walk(child)
+        })
+      })(fn.body)
+      return names
+    }
+
+    function describeFn(fn, parent, src) {
+      if (parent && parent.type === 'CallExpression' && parent.arguments.includes(fn)) {
+        const callee = src.slice(parent.callee.start, parent.callee.end)
+        const args = parent.arguments.map((a) =>
+          a === fn ? 'ƒ' : a.type === 'Literal' ? JSON.stringify(a.value) : '…')
+        return `${callee}(${args.join(', ')})`
+      }
+      if (fn.id) return `function ${fn.id.name}()`
+      if (parent && parent.type === 'VariableDeclarator' && parent.id.type === 'Identifier') return `${parent.id.name}()`
+      if (parent && parent.type === 'Property' && parent.key) return `${parent.key.name || parent.key.value}()`
+      return 'anonymous function'
+    }
+
+    function analyze(src) {
+      const ast = acorn.parse(src, {
+        ecmaVersion: 'latest', sourceType: 'script', locations: true,
+        allowReturnOutsideFunction: true, allowHashBang: true,
+      })
+      const probes = new Map()
+
+      ;(function visit(node, parent, scopes, ctx) {
+        if (isFn(node)) {
+          scopes = scopes.concat([scopeNames(node)])
+          ctx = describeFn(node, parent, src)
+        }
+        // Probes only go before statements in blocks inside functions
+        // (file-level code runs at startup).
+        if (node.type === 'BlockStatement' && scopes.length) {
+          node.body.forEach((st) => {
+            const line = st.loc.start.line
+            if (probes.has(line)) return
+            const names = [...new Set(scopes.flat())].filter((n) => /^[\w$]+$/.test(n) && n !== '__dbgx')
+            probes.set(line, { line, offset: st.start, names, ctx })
+          })
+        }
+        childNodes(node).forEach((child) => visit(child, node, scopes, ctx))
+      })(ast, null, [], null)
+
+      return { probes, classes: tokenClasses(src) }
+    }
+
+    // Syntax highlighting based on the acorn tokenizer.
+    function tokenClasses(src) {
+      const ranges = []
+      const tt = acorn.tokTypes
+      try {
+        const tokenizer = acorn.tokenizer(src, {
+          ecmaVersion: 'latest', allowReturnOutsideFunction: true, allowHashBang: true,
+          onComment: (block, text, start, end) => ranges.push([start, end, 't-com']),
+        })
+        for (const tok of tokenizer) {
+          let cls = null
+          if (tok.type.keyword) cls = 't-kw'
+          else if (tok.type === tt.string || tok.type === tt.template) cls = 't-str'
+          else if (tok.type === tt.num) cls = 't-num'
+          else if (tok.type === tt.regexp) cls = 't-re'
+          if (cls) ranges.push([tok.start, tok.end, cls])
+        }
+      } catch {}
+      return ranges.sort((a, b) => a[0] - b[0])
+    }
+
+    function instrument(name, src, probes) {
+      let out = src
+      ;[...probes.values()]
+        .sort((a, b) => b.offset - a.offset)
+        .forEach((p) => {
+          const probe = `/*@dbg*/;require(__hooks+"/_dbg_runtime.js").bp(${JSON.stringify(name)},${p.line},(__dbgx)=>eval(__dbgx),${JSON.stringify(p.names)});/*@/dbg*/`
+          out = out.slice(0, p.offset) + probe + out.slice(p.offset)
+        })
+      return out + MARKER
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Rendering                                                           */
+    /* ------------------------------------------------------------------ */
+
+    function renderFiles() {
+      $('files').innerHTML = ''
+      state.files.forEach((f) => {
+        const li = document.createElement('li')
+        const btn = document.createElement('button')
+        btn.className = state.file && state.file.name === f.name ? 'active' : ''
+        btn.innerHTML = `<span>${esc(f.name)}</span>${f.instrumented ? '<span class="badge">debug</span>' : ''}`
+        btn.addEventListener('click', () => openFile(f.name))
+        li.append(btn)
+        $('files').append(li)
+      })
+      if (!state.files.length) $('files').innerHTML = '<li class="muted pad">No files.</li>'
+    }
+
+    function renderCode() {
+      const code = $('code')
+      if (!state.file) return
+      const { source } = state.file
+      const { probes, classes } = state.analysis
+      const bpLines = new Set(state.breakpoints.filter((b) => b.file === state.file.name).map((b) => b.line))
+      const pausedLine = state.session && state.session.file === state.file.name ? state.session.line : null
+
+      // Build the HTML line by line, keeping the classes of tokens that
+      // span several lines (block comments, template strings).
+      const lines = source.split('\n')
+      let pos = 0, ri = 0
+      const html = lines.map((text, i) => {
+        const lineStart = pos, lineEnd = pos + text.length
+        pos = lineEnd + 1
+        let out = '', cur = lineStart
+        while (ri < classes.length && classes[ri][1] <= lineStart) ri++
+        for (let j = ri; j < classes.length && classes[j][0] < lineEnd; j++) {
+          const [s, e, cls] = classes[j]
+          const a = Math.max(s, lineStart), b = Math.min(e, lineEnd)
+          if (a < cur) continue
+          out += esc(source.slice(cur, a)) + `<span class="${cls}">${esc(source.slice(a, b))}</span>`
+          cur = b
+        }
+        out += esc(source.slice(cur, lineEnd))
+        const n = i + 1
+        const cls = ['ln', probes.has(n) && 'can', bpLines.has(n) && 'bp', pausedLine === n && 'paused'].filter(Boolean).join(' ')
+        return `<div class="${cls}" data-line="${n}"><span class="gut">${n}</span><span class="src">${out || ' '}</span></div>`
+      })
+      code.innerHTML = html.join('')
+
+      $('toolbar').hidden = false
+      $('file-name').textContent = state.file.name
+      const btn = $('toggle-debug')
+      btn.disabled = false
+      if (state.file.instrumented) {
+        btn.textContent = 'Disable debug'
+        btn.className = ''
+        $('file-hint').textContent = `Probes active on ${probes.size} lines. Click a line number to toggle a breakpoint.`
+      } else {
+        btn.textContent = 'Enable debug'
+        btn.className = 'primary'
+        $('file-hint').textContent = probes.size
+          ? 'Breakpoints only pause after you enable debug on this file.'
+          : 'This file has no code inside functions (handlers) to put breakpoints on.'
+      }
+    }
+
+    function renderBreakpoints() {
+      const list = $('bplist')
+      list.innerHTML = ''
+      if (!state.breakpoints.length) {
+        list.innerHTML = '<li class="muted">None. Click a line number.</li>'
+        return
+      }
+      ;[...state.breakpoints]
+        .sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line)
+        .forEach((bp) => {
+          const li = document.createElement('li')
+          const active = state.files.find((f) => f.name === bp.file)?.instrumented
+          li.innerHTML = `<span style="color:var(--bp)">●</span><a>${esc(bp.file)}:${bp.line}</a>${active ? '' : '<span class="muted">(inactive)</span>'}<button class="x" title="Remove">✕</button>`
+          li.querySelector('a').addEventListener('click', () => openFile(bp.file, bp.line))
+          li.querySelector('.x').addEventListener('click', () => removeBreakpoint(bp))
+          list.append(li)
+        })
+    }
+
+    function renderValue(name, v) {
+      const wrap = document.createElement('details')
+      wrap.className = 'var'
+      const isComplex = v.value !== null && typeof v.value === 'object'
+      const preview = isComplex ? JSON.stringify(v.value) : typeof v.value === 'string' && v.type === 'string' ? JSON.stringify(v.value) : String(v.value)
+      wrap.innerHTML = `<summary>${name !== null ? `<span class="k">${esc(name)}</span>: ` : ''}<span class="ty">${esc(v.type)}</span> ${esc(preview.length > 120 ? preview.slice(0, 120) + '…' : preview)}</summary>`
+      if (isComplex || preview.length > 120) {
+        const pre = document.createElement('pre')
+        pre.textContent = isComplex ? JSON.stringify(v.value, null, 2) : preview
+        wrap.append(pre)
+      }
+      return wrap
+    }
+
+    function renderSession() {
+      const s = state.session
+      const paused = !!s
+      $('btn-continue').disabled = !paused
+      $('btn-step').disabled = !paused
+      $('console-input').disabled = !paused
+      $('state').textContent = paused ? '⏸ Paused at breakpoint' : 'Running'
+      $('state').className = 'state' + (paused ? ' paused' : '')
+
+      if (!paused) {
+        $('where').textContent = 'No breakpoint hit.'
+        $('vars').innerHTML = '<p class="muted">Shown while execution is paused.</p>'
+        return
+      }
+      const ctx = state.file && state.file.name === s.file ? state.analysis.probes.get(s.line)?.ctx : null
+      $('where').textContent = `${s.file}:${s.line}${ctx ? '  —  ' + ctx : ''}`
+      const vars = $('vars')
+      vars.innerHTML = ''
+      const entries = Object.entries(s.locals || {})
+      if (!entries.length) vars.innerHTML = '<p class="muted">No local variables in scope.</p>'
+      entries.forEach(([k, v]) => vars.append(renderValue(k, v)))
+    }
+
+    function scrollToLine(line) {
+      const el = document.querySelector(`.ln[data-line="${line}"]`)
+      if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Actions                                                            */
+    /* ------------------------------------------------------------------ */
+
+    async function loadFiles() {
+      state.files = await api('/api/dbg/files')
+      renderFiles()
+      renderBreakpoints()
+    }
+
+    async function loadBreakpoints() {
+      state.breakpoints = await pb.collection('dbg_breakpoints').getFullList({ sort: 'file,line' })
+      renderBreakpoints()
+    }
+
+    async function openFile(name, line) {
+      try {
+        const file = await api(`/api/dbg/source/${encodeURIComponent(name)}`)
+        let analysis
+        try {
+          analysis = analyze(file.source)
+        } catch (err) {
+          state.file = null
+          $('toolbar').hidden = true
+          $('code').innerHTML = `<p class="empty-state">Cannot parse ${esc(name)}: ${esc(err.message)}</p>`
+          return
+        }
+        state.file = file
+        state.analysis = analysis
+        renderFiles()
+        renderCode()
+        if (state.session) renderSession()
+        if (line) scrollToLine(line)
+      } catch (err) {
+        toast(err?.response?.message || `Cannot open ${name}`)
+      }
+    }
+
+    async function toggleBreakpoint(line) {
+      if (!state.file || !state.analysis.probes.has(line)) return
+      const existing = state.breakpoints.find((b) => b.file === state.file.name && b.line === line)
+      try {
+        if (existing) {
+          await pb.collection('dbg_breakpoints').delete(existing.id)
+          state.breakpoints = state.breakpoints.filter((b) => b.id !== existing.id)
+        } else {
+          const rec = await pb.collection('dbg_breakpoints').create({ file: state.file.name, line })
+          state.breakpoints.push(rec)
+        }
+      } catch (err) {
+        toast(err?.response?.message || 'Could not save the breakpoint.')
+        await loadBreakpoints()
+      }
+      renderCode()
+      renderBreakpoints()
+    }
+
+    async function removeBreakpoint(bp) {
+      try {
+        await pb.collection('dbg_breakpoints').delete(bp.id)
+      } catch {}
+      state.breakpoints = state.breakpoints.filter((b) => b.id !== bp.id)
+      renderBreakpoints()
+      if (state.file) renderCode()
+    }
+
+    // Writing to pb_hooks restarts the instance: wait for it to come back.
+    async function waitForRestart(name, wantInstrumented) {
+      const until = Date.now() + 60000
+      // The file changes right away, but hooks reload only after the restart.
+      await new Promise((r) => setTimeout(r, 4000))
+      while (Date.now() < until) {
+        try {
+          const files = await api('/api/dbg/files')
+          const f = files.find((x) => x.name === name)
+          if (f && f.instrumented === wantInstrumented) {
+            state.files = files
+            return true
+          }
+        } catch {}
+        await new Promise((r) => setTimeout(r, 1500))
+      }
+      return false
+    }
+
+    async function toggleDebug() {
+      const file = state.file
+      if (!file) return
+      const btn = $('toggle-debug')
+      btn.disabled = true
+      const enabling = !file.instrumented
+      $('file-hint').textContent = enabling ? 'Instrumenting and restarting hooks…' : 'Restoring the original…'
+      try {
+        if (enabling) {
+          const source = instrument(file.name, file.source, state.analysis.probes)
+          await api(`/api/dbg/instrument/${encodeURIComponent(file.name)}`, { method: 'POST', body: { source } })
+        } else {
+          await api(`/api/dbg/restore/${encodeURIComponent(file.name)}`, { method: 'POST' })
+        }
+        const ok = await waitForRestart(file.name, enabling)
+        toast(ok ? (enabling ? `Debug enabled on ${file.name}` : `${file.name} restored`) : 'The instance has not confirmed the change yet. Reload the page.')
+      } catch (err) {
+        toast(err?.response?.message || 'Operation failed.')
+      }
+      await openFile(file.name)
+    }
+
+    async function sendCommand(command, extra = {}) {
+      if (!state.session) return
+      try {
+        await pb.collection('dbg_sessions').update(state.session.id, { command, ...extra })
+      } catch (err) {
+        toast(err?.response?.message || 'The command did not reach the server.')
+      }
+    }
+
+    function consoleLine(html) {
+      const out = $('console-out')
+      const div = document.createElement('div')
+      div.innerHTML = html
+      out.append(div)
+      out.scrollTop = out.scrollHeight
+      return div
+    }
+
+    async function evaluate(expr) {
+      if (!state.session || !expr.trim()) return
+      const seq = ++state.evalSeq
+      consoleLine(`<div class="q">${esc(expr)}</div>`)
+      const slot = consoleLine('<span class="muted">…</span>')
+      state.pendingEvals.set(seq, slot)
+      await sendCommand('eval', { expr, evalSeq: seq })
+    }
+
+    function onEvalResult(result) {
+      const slot = state.pendingEvals.get(result.seq)
+      if (!slot) return
+      state.pendingEvals.delete(result.seq)
+      slot.innerHTML = ''
+      if (result.type === 'error') slot.innerHTML = `<span class="e">${esc(result.value)}</span>`
+      else slot.append(renderValue(null, result))
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Sessions (realtime)                                                */
+    /* ------------------------------------------------------------------ */
+
+    async function setPaused(session) {
+      state.session = session
+      state.evalSeq = Math.max(state.evalSeq, session.evalSeq || 0)
+      if (!state.file || state.file.name !== session.file) await openFile(session.file)
+      else renderCode()
+      renderSession()
+      scrollToLine(session.line)
+    }
+
+    function clearPaused() {
+      state.session = null
+      state.pendingEvals.forEach((slot) => (slot.innerHTML = '<span class="muted">cancelled (execution resumed)</span>'))
+      state.pendingEvals.clear()
+      renderSession()
+      if (state.file) renderCode()
+    }
+
+    function onSessionEvent(e) {
+      const r = e.record
+      if (r.status === 'paused') {
+        if (r.result && typeof r.result.seq === 'number') onEvalResult(r.result)
+        if (!state.session || state.session.id !== r.id || state.session.line !== r.line) setPaused(r)
+        else {
+          state.session = r
+          renderSession()
+        }
+      } else if (state.session && state.session.id === r.id) {
+        if (r.status === 'timeout') toast('Pause timed out; execution resumed.')
+        clearPaused()
+      }
+    }
+
+    async function loadActiveSession() {
+      try {
+        const list = await pb.collection('dbg_sessions').getList(1, 1, { filter: 'status = "paused"', sort: '-created' })
+        const s = list.items[0]
+        if (s && Date.now() - new Date(s.updated.replace(' ', 'T')).getTime() < PAUSE_MAX_AGE_MS) await setPaused(s)
+      } catch {}
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Request runner                                                     */
+    /* ------------------------------------------------------------------ */
+
+    async function sendRequest() {
+      const method = $('req-method').value
+      const path = $('req-path').value.trim()
+      const body = $('req-body').value.trim()
+      const out = $('req-out')
+      out.innerHTML = '<span class="muted">waiting… (if it hits a breakpoint it stays here until you press Continue)</span>'
+      const headers = {}
+      if (body && method !== 'GET') headers['Content-Type'] = 'application/json'
+      if ($('req-auth').checked) headers.Authorization = pb.authStore.token
+      const t0 = performance.now()
+      try {
+        const res = await fetch(new URL(path, location.origin), {
+          method, headers, body: method === 'GET' || !body ? undefined : body,
+        })
+        const text = await res.text()
+        let pretty = text
+        try { pretty = JSON.stringify(JSON.parse(text), null, 2) } catch {}
+        out.innerHTML = `<div class="muted">${res.status} ${esc(res.statusText)} · ${Math.round(performance.now() - t0)} ms</div>`
+        const pre = document.createElement('pre')
+        pre.textContent = pretty.length > 5000 ? pretty.slice(0, 5000) + '…' : pretty
+        out.append(pre)
+      } catch (err) {
+        out.innerHTML = `<span class="e">${esc(err.message)}</span>`
+      }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Startup                                                            */
+    /* ------------------------------------------------------------------ */
+
+    function setConn(on) {
+      $('conn-dot').classList.toggle('on', on)
+      $('conn-text').textContent = on ? 'live' : 'reconnecting…'
+    }
+
+    async function startApp() {
+      $('login-view').hidden = true
+      $('app-view').hidden = false
+      $('who').textContent = pb.authStore.record?.email || ''
+      try {
+        await Promise.all([loadFiles(), loadBreakpoints()])
+      } catch (err) {
+        if (err?.status === 401 || err?.status === 403) return logout('Session expired. Please sign in again.')
+        toast('Cannot load files. Are the /api/dbg routes deployed?')
+      }
+      await pb.collection('dbg_sessions').subscribe('*', onSessionEvent)
+      pb.realtime.subscribe('PB_CONNECT', () => setConn(true))
+      pb.realtime.onDisconnect = () => setConn(false)
+      setConn(true)
+      await loadActiveSession()
+      if (!state.file && state.files.length) openFile(state.files[0].name)
+    }
+
+    function logout(msg) {
+      pb.realtime.unsubscribe()
+      pb.authStore.clear()
+      $('app-view').hidden = true
+      $('login-view').hidden = false
+      $('login-error').textContent = msg || ''
+    }
+
+    $('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault()
+      $('login-error').textContent = ''
+      try {
+        await pb.collection('_superusers').authWithPassword($('login-email').value, $('login-password').value)
+        $('login-password').value = ''
+        startApp()
+      } catch (err) {
+        $('login-error').textContent = err?.response?.message || 'Sign-in failed.'
+      }
+    })
+
+    $('logout').addEventListener('click', () => logout())
+    $('toggle-debug').addEventListener('click', toggleDebug)
+    $('code').addEventListener('click', (e) => {
+      const gut = e.target.closest('.gut')
+      if (gut) toggleBreakpoint(Number(gut.parentElement.dataset.line))
+    })
+    $('btn-continue').addEventListener('click', () => sendCommand('continue'))
+    $('btn-step').addEventListener('click', () => sendCommand('step'))
+    $('console-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        evaluate(e.target.value)
+        e.target.value = ''
+      }
+    })
+    $('req-send').addEventListener('click', sendRequest)
+    document.addEventListener('keydown', (e) => {
+      if (!state.session) return
+      if (e.key === 'F8') { e.preventDefault(); sendCommand('continue') }
+      if (e.key === 'F10') { e.preventDefault(); sendCommand('step') }
+    })
+
+    if (pb.authStore.isValid && pb.authStore.isSuperuser) startApp()
+    else $('login-view').hidden = false
+  </script>
+</body>
+</html>
