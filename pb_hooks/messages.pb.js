@@ -1,15 +1,15 @@
 /// <reference path="../pb_data/types.d.ts" />
 
-// Notă: în JSVM-ul PocketBase fiecare handler rulează izolat, așa că
-// nu putem folosi funcții helper definite la nivelul fișierului.
+// Note: in the PocketBase JSVM each handler runs in isolation, so we can't
+// use helper functions defined at file level.
 
-// Normalizează mesajele noi și împiedică setarea manuală a like-urilor.
+// Normalizes new messages and prevents clients from setting likes directly.
 onRecordCreateRequest((e) => {
   const author = String(e.record.get('author') || '').trim()
   const body = String(e.record.get('body') || '').trim()
 
-  if (!author) throw new BadRequestError('Numele este obligatoriu.')
-  if (!body) throw new BadRequestError('Mesajul nu poate fi gol.')
+  if (!author) throw new BadRequestError('Name is required.')
+  if (!body) throw new BadRequestError('Message cannot be empty.')
 
   e.record.set('author', author)
   e.record.set('body', body)
@@ -18,8 +18,8 @@ onRecordCreateRequest((e) => {
   e.next()
 }, 'messages')
 
-// POST /api/board/like/{id} — incrementează like-urile unui mesaj.
-// Salvarea prin app.save() declanșează și evenimentul realtime.
+// POST /api/board/like/{id} — increments a message's likes.
+// Saving via app.save() also fires the realtime event.
 routerAdd('POST', '/api/board/like/{id}', (e) => {
   const id = e.request.pathValue('id')
 
@@ -27,7 +27,7 @@ routerAdd('POST', '/api/board/like/{id}', (e) => {
   try {
     record = e.app.findRecordById('messages', id)
   } catch (err) {
-    throw new NotFoundError('Mesajul nu există.')
+    throw new NotFoundError('Message not found.')
   }
 
   record.set('likes', record.getInt('likes') + 1)
@@ -36,7 +36,7 @@ routerAdd('POST', '/api/board/like/{id}', (e) => {
   return e.json(200, { id: record.id, likes: record.getInt('likes') })
 })
 
-// GET /api/board/stats — statistici simple pentru antet.
+// GET /api/board/stats — simple stats for the header.
 routerAdd('GET', '/api/board/stats', (e) => {
   const totals = new DynamicModel({ messages: 0, likes: 0, authors: 0 })
   e.app

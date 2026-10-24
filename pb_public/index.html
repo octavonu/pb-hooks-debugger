@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ro">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Panou de mesaje</title>
+  <title>Message Board</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>" />
   <style>
     :root {
@@ -98,37 +98,37 @@
 <body>
   <main>
     <header>
-      <h1>💬 Panou de mesaje</h1>
-      <p>Lasă un gând. Toată lumea îl vede instant.</p>
+      <h1>💬 Message Board</h1>
+      <p>Leave a thought. Everyone sees it instantly.</p>
     </header>
 
     <div class="stats">
-      <span><b id="s-messages">–</b> mesaje</span>
-      <span><b id="s-authors">–</b> autori</span>
+      <span><b id="s-messages">–</b> messages</span>
+      <span><b id="s-authors">–</b> authors</span>
       <span><b id="s-likes">–</b> ❤️</span>
-      <span class="live"><span class="dot" id="live-dot"></span><span id="live-text">conectare…</span></span>
+      <span class="live"><span class="dot" id="live-dot"></span><span id="live-text">connecting…</span></span>
     </div>
 
     <form id="form" autocomplete="off">
-      <input id="author" name="author" maxlength="40" placeholder="Numele tău" required />
-      <textarea id="body" name="body" maxlength="280" placeholder="Ce vrei să spui?" required></textarea>
+      <input id="author" name="author" maxlength="40" placeholder="Your name" required />
+      <textarea id="body" name="body" maxlength="280" placeholder="What do you want to say?" required></textarea>
       <div class="row">
-        <div class="moods" role="radiogroup" aria-label="Stare">
-          <label title="Vesel"><input type="radio" name="mood" value="happy" checked /><span>😄</span></label>
-          <label title="Drag"><input type="radio" name="mood" value="love" /><span>❤️</span></label>
-          <label title="Idee"><input type="radio" name="mood" value="idea" /><span>💡</span></label>
-          <label title="Petrecere"><input type="radio" name="mood" value="party" /><span>🎉</span></label>
-          <label title="Relaxat"><input type="radio" name="mood" value="chill" /><span>😎</span></label>
+        <div class="moods" role="radiogroup" aria-label="Mood">
+          <label title="Happy"><input type="radio" name="mood" value="happy" checked /><span>😄</span></label>
+          <label title="Love"><input type="radio" name="mood" value="love" /><span>❤️</span></label>
+          <label title="Idea"><input type="radio" name="mood" value="idea" /><span>💡</span></label>
+          <label title="Party"><input type="radio" name="mood" value="party" /><span>🎉</span></label>
+          <label title="Chill"><input type="radio" name="mood" value="chill" /><span>😎</span></label>
         </div>
         <span class="counter" id="counter">0 / 280</span>
-        <button class="primary" type="submit" id="submit">Trimite</button>
+        <button class="primary" type="submit" id="submit">Send</button>
       </div>
       <p class="error" id="error" role="alert"></p>
     </form>
 
     <ul id="list" aria-live="polite"></ul>
-    <p class="empty" id="empty" hidden>Încă nu sunt mesaje. Fii primul!</p>
-    <button class="primary more" id="more" hidden>Mai multe</button>
+    <p class="empty" id="empty" hidden>No messages yet. Be the first!</p>
+    <button class="primary more" id="more" hidden>Load more</button>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/pocketbase@0.28.1/dist/pocketbase.umd.js"></script>
@@ -142,7 +142,7 @@
     const list = $('list')
     let page = 1
 
-    // Like-urile și numele sunt reținute doar local, pentru confort.
+    // Likes and the name are only remembered locally, for convenience.
     const store = {
       get(key, fallback) {
         try { return JSON.parse(localStorage.getItem(key)) ?? fallback } catch { return fallback }
@@ -154,7 +154,7 @@
     const liked = new Set(store.get('liked', []))
     $('author').value = store.get('author', '')
 
-    const timeFmt = new Intl.RelativeTimeFormat('ro', { numeric: 'auto' })
+    const timeFmt = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
     function ago(dateStr) {
       const diff = (new Date(dateStr.replace(' ', 'T')) - Date.now()) / 1000
       const units = [[60, 'second'], [60, 'minute'], [24, 'hour'], [7, 'day'], [4.35, 'week'], [12, 'month'], [Infinity, 'year']]
@@ -187,7 +187,7 @@
       const btn = li.querySelector('.like')
       btn.textContent = `❤️ ${record.likes || 0}`
       btn.classList.toggle('liked', liked.has(record.id))
-      btn.setAttribute('aria-label', `Apreciază mesajul (${record.likes || 0})`)
+      btn.setAttribute('aria-label', `Like this message (${record.likes || 0})`)
 
       if (fresh) {
         if (isNew) li.classList.add('new')
@@ -203,7 +203,7 @@
       $('empty').hidden = list.children.length > 0
     }
 
-    // Ignoră răspunsurile întârziate când evenimentele vin în rafală.
+    // Ignore stale responses when events arrive in bursts.
     let statsSeq = 0
     async function loadStats() {
       const seq = ++statsSeq
@@ -243,7 +243,7 @@
         $('body').value = ''
         $('counter').textContent = '0 / 280'
       } catch (err) {
-        $('error').textContent = err?.response?.message || 'Nu am putut trimite mesajul.'
+        $('error').textContent = err?.response?.message || 'Could not send the message.'
       } finally {
         $('submit').disabled = false
       }
@@ -260,7 +260,7 @@
       try {
         await loadPage()
       } catch {
-        $('error').textContent = 'Nu am putut încărca mesajele.'
+        $('error').textContent = 'Could not load messages.'
       }
       loadStats()
 
@@ -274,7 +274,7 @@
       pb.realtime.subscribe('PB_CONNECT', () => setLive(true))
       pb.realtime.onDisconnect = () => setLive(false)
 
-      // Reîmprospătează timpii relativi.
+      // Refresh relative timestamps.
       setInterval(() => {
         document.querySelectorAll('time').forEach((t) => (t.textContent = ago(t.dateTime)))
       }, 30000)

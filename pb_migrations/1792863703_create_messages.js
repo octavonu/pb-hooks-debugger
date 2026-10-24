@@ -1,8 +1,8 @@
 /// <reference path="../pb_data/types.d.ts" />
 
-// Colecția publică "messages" pentru panoul de mesaje.
-// Oricine poate citi și posta; nimeni nu poate edita/șterge prin API.
-// Like-urile se fac doar prin ruta custom din pb_hooks/messages.pb.js.
+// Public "messages" collection for the message board.
+// Anyone can read and post; nobody can edit/delete through the API.
+// Likes only go through the custom route in pb_hooks/messages.pb.js.
 migrate(
   (app) => {
     const collection = new Collection({

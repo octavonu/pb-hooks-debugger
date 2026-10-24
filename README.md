@@ -85,7 +85,7 @@ Goja, the JS engine inside PocketBase, has no debugging protocol, so the debugge
 | `pb_hooks/_dbg_server.js` | File handling and verification of instrumented sources |
 | `pb_hooks/_dbg_runtime.js` | The `bp()` probe: breakpoint checks, pausing, variable snapshots, eval |
 | `pb_migrations/1792866000_create_debugger.js` | `dbg_breakpoints` and `dbg_sessions` collections (superuser-only) |
-| `pb_hooks/messages.pb.js`, `pb_public/index.html`, `pb_migrations/1792863703_create_messages.js` | Optional demo: a small realtime message board to debug (UI in Romanian) |
+| `pb_hooks/messages.pb.js`, `pb_public/index.html`, `pb_migrations/1792863703_create_messages.js` | Optional demo: a small realtime message board to debug |
 | `.phioconfig` | Only used by PocketHost's `phio` CLI; run `phio link` to point it at your own instance |
 
 ## Limitations
