@@ -103,3 +103,7 @@ Goja, the JS engine inside PocketBase, has no debugging protocol, so the debugge
 - All debugger routes require superuser auth (`$apis.requireSuperuserAuth()`).
 - Both `dbg_*` collections have `null` rules, so only superusers can access them.
 - Variable snapshots and eval results are stored in `dbg_sessions`. Sensitive headers are masked, but other values (e.g. record fields) are stored as-is. Clear the collection if that matters.
+
+## License
+
+[MIT](LICENSE)
