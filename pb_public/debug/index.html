@@ -601,6 +601,7 @@
         state.file = file
         state.analysis = analysis
         renderFiles()
+        renderBreakpoints()
         renderCode()
         if (state.session) renderSession()
         if (line) scrollToLine(line)

@@ -2,6 +2,8 @@
 
 A breakpoint debugger for [PocketBase](https://github.com/pocketbase/pocketbase) JS hooks (`pb_hooks`) that runs entirely inside PocketBase itself. You don't need extra binaries, an IDE or a hosting service: drop three folders next to `pocketbase`, open `/debug/` in the browser, pick a hook file and click a line number. When you trigger the hook, the request pauses there and you can inspect variables, evaluate expressions and step through the code.
 
+![Pausing a request at a breakpoint, stepping, evaluating an expression and continuing](docs/demo.gif)
+
 It only uses standard JSVM APIs (`sleep()`, `$os`, `$app.store()`, realtime), so it runs on any PocketBase with JS hooks. It was tested with PocketBase **v0.40.6**, both locally (macOS) and on [PocketHost](https://pockethost.io).
 
 ## Features
@@ -13,6 +15,8 @@ It only uses standard JSVM APIs (`sleep()`, `$os`, `$app.store()`, realtime), so
 - Evaluate expressions in the paused scope, e.g. `e.record.get('author')` or `$app.findRecordById(...)`. Expressions can also change state, e.g. `e.record.set(...)`.
 - **Continue** (F8) and **Step** (F10, to the next executed line).
 - A built-in request runner, so you can trigger hooks without leaving the page.
+
+![The debugger paused on line 42 of messages.pb.js, showing local variables and an evaluated expression](docs/screenshot.jpg)
 
 ## Quick start
 
