@@ -12,8 +12,8 @@ routerAdd(
 
 routerAdd(
   'GET',
-  '/api/dbg/source/{name}',
-  (e) => e.json(200, require(`${__hooks}/_dbg_server.js`).source(e.request.pathValue('name'))),
+  '/api/dbg/source/{path...}',
+  (e) => e.json(200, require(`${__hooks}/_dbg_server.js`).source(e.request.pathValue('path'))),
   $apis.requireSuperuserAuth()
 )
 
@@ -21,10 +21,10 @@ routerAdd(
 // become active after a few seconds.
 routerAdd(
   'POST',
-  '/api/dbg/instrument/{name}',
+  '/api/dbg/instrument/{path...}',
   (e) => {
     const body = e.requestInfo().body
-    require(`${__hooks}/_dbg_server.js`).instrument(e.request.pathValue('name'), body.source)
+    require(`${__hooks}/_dbg_server.js`).instrument(e.request.pathValue('path'), body.source)
     return e.json(200, { ok: true })
   },
   $apis.requireSuperuserAuth()
@@ -32,9 +32,9 @@ routerAdd(
 
 routerAdd(
   'POST',
-  '/api/dbg/restore/{name}',
+  '/api/dbg/restore/{path...}',
   (e) => {
-    require(`${__hooks}/_dbg_server.js`).restore(e.request.pathValue('name'))
+    require(`${__hooks}/_dbg_server.js`).restore(e.request.pathValue('path'))
     return e.json(200, { ok: true })
   },
   $apis.requireSuperuserAuth()

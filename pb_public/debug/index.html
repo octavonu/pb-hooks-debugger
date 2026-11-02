@@ -142,8 +142,11 @@
       display: flex; gap: 6px; align-items: center; font-family: var(--mono); font-size: .85rem;
     }
     .files li button.active { background: var(--accent-soft); border-color: var(--accent); }
-    .files li button > span:first-of-type { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .files .fname { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     .files .badge { flex: none; }
+    .files li button.ro .fname { color: var(--muted); }
+    .lock { width: 12px; height: 12px; flex: none; color: var(--muted); }
+    .files .lock { margin-left: auto; }
     .badge {
       margin-left: auto; font-family: system-ui, sans-serif; font-size: .68rem; padding: 0 6px;
       border-radius: 999px; background: var(--ok); color: #fff;
@@ -341,7 +344,7 @@
               <svg viewBox="0 0 16 16" fill="currentColor"><rect x="2" y="3" width="2.4" height="10" rx=".6"/><path d="M6.5 3.2v9.6a.5.5 0 0 0 .77.42l7.1-4.8a.5.5 0 0 0 0-.84l-7.1-4.8a.5.5 0 0 0-.77.42z"/></svg>
             </button>
             <span class="sep"></span>
-            <button class="ib" id="btn-into" disabled title="Step Into (not available yet)" aria-label="Step Into">
+            <button class="ib" id="btn-into" disabled title="Step Into (F5)" aria-label="Step Into">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5v7.5M4.8 6.2 8 9.4l3.2-3.2"/><path d="M4 13.5h8" stroke-width="2.2"/></svg>
             </button>
             <button class="ib" id="btn-step" disabled title="Step Over (F6)" aria-label="Step Over">
@@ -424,6 +427,7 @@
       breakpoints: [],   // records from dbg_breakpoints
       session: null,     // the currently paused session
       tabs: [],          // names of the files open in editor tabs
+      collapsed: new Set(), // folder paths collapsed in the file tree
       expanded: new Set(), // expanded paths in the Variables tree, e.g. "/e/record"
       evalSeq: 0,
       pendingEvals: new Map(),
@@ -564,21 +568,66 @@
     /* Rendering                                                           */
     /* ------------------------------------------------------------------ */
 
-    function renderFiles() {
-      $('files').innerHTML = ''
-      state.files.forEach((f) => {
+    // Files come as paths relative to pb_hooks ("tests/helpers.js"); build a
+    // folder tree from them. Folders are listed before files.
+    function buildTree(files) {
+      const root = { dirs: new Map(), files: [] }
+      files.forEach((f) => {
+        let node = root
+        f.name.split('/').slice(0, -1).forEach((part) => {
+          if (!node.dirs.has(part)) node.dirs.set(part, { dirs: new Map(), files: [] })
+          node = node.dirs.get(part)
+        })
+        node.files.push(f)
+      })
+      return root
+    }
+
+    function renderTreeNode(ul, node, prefix) {
+      ;[...node.dirs.keys()].sort((a, b) => a.localeCompare(b)).forEach((dir) => {
+        const path = prefix + dir
+        const open = !state.collapsed.has(path)
         const li = document.createElement('li')
         const btn = document.createElement('button')
-        btn.className = state.file && state.file.name === f.name ? 'active' : ''
-        btn.innerHTML = `${FILE_ICON}<span>${esc(f.name)}</span>${f.instrumented ? '<span class="badge">debug</span>' : ''}`
+        btn.className = 'folder'
+        btn.title = path
+        btn.setAttribute('aria-expanded', open)
+        btn.innerHTML = `<span class="tw">${open ? '▾' : '▸'}</span>${DIR_ICON}<span class="fname">${esc(dir)}</span>`
+        btn.addEventListener('click', () => {
+          if (open) state.collapsed.add(path)
+          else state.collapsed.delete(path)
+          renderFiles()
+        })
+        const sub = document.createElement('ul')
+        sub.className = 'files'
+        sub.hidden = !open
+        renderTreeNode(sub, node.dirs.get(dir), path + '/')
+        li.append(btn, sub)
+        ul.append(li)
+      })
+      node.files.forEach((f) => {
+        const li = document.createElement('li')
+        const btn = document.createElement('button')
+        btn.className = [state.file && state.file.name === f.name && 'active', f.readonly && 'ro'].filter(Boolean).join(' ')
+        btn.title = f.readonly ? `${f.name} (read-only: part of the debugger)` : f.name
+        btn.innerHTML = `${FILE_ICON}<span class="fname">${esc(baseName(f.name))}</span>${f.instrumented ? '<span class="badge">debug</span>' : ''}${f.readonly ? LOCK_ICON : ''}`
         btn.addEventListener('click', () => openFile(f.name))
         li.append(btn)
-        $('files').append(li)
+        ul.append(li)
       })
+    }
+
+    function renderFiles() {
+      $('files').innerHTML = ''
+      renderTreeNode($('files'), buildTree(state.files), '')
       if (!state.files.length) $('files').innerHTML = '<li class="muted pad">No files.</li>'
       renderTabs()
     }
 
+    const baseName = (path) => path.slice(path.lastIndexOf('/') + 1)
+    const encodePath = (path) => path.split('/').map(encodeURIComponent).join('/')
+    const LOCK_ICON = '<svg class="lock" viewBox="0 0 16 16" fill="currentColor" aria-label="read-only"><path d="M4.5 7V5a3.5 3.5 0 0 1 7 0v2h.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1zm1.6 0h3.8V5a1.9 1.9 0 0 0-3.8 0z"/></svg>'
+    const DIR_ICON = '<svg class="ico dir" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.5A1 1 0 0 1 2.5 2.5h3.6l1.5 1.5h5.9a1 1 0 0 1 1 1v7.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z"/></svg>'
     const FILE_ICON = '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3.5 1.5h6l3 3v10h-9z"/><path d="M9.5 1.5v3h3"/></svg>'
 
     function renderTabs() {
@@ -590,7 +639,7 @@
         const tab = document.createElement('div')
         tab.className = ['tab', state.file?.name === name && 'active', state.session?.file === name && 'paused'].filter(Boolean).join(' ')
         tab.title = name + (f?.instrumented ? ' (debug enabled)' : '')
-        tab.innerHTML = `${f?.instrumented ? '<span class="dbg-dot"></span>' : ''}<span>${esc(name)}</span><button class="tx" title="Close" aria-label="Close ${esc(name)}">×</button>`
+        tab.innerHTML = `${f?.instrumented ? '<span class="dbg-dot"></span>' : ''}${f?.readonly ? LOCK_ICON : ''}<span>${esc(baseName(name))}</span><button class="tx" title="Close" aria-label="Close ${esc(name)}">×</button>`
         tab.addEventListener('click', (e) => {
           if (e.target.closest('.tx')) closeTab(name)
           else if (state.file?.name !== name) openFile(name)
@@ -659,7 +708,10 @@
       $('file-name').textContent = state.file.name
       const btn = $('toggle-debug')
       btn.disabled = false
-      if (state.file.instrumented) {
+      btn.hidden = !!state.file.readonly
+      if (state.file.readonly) {
+        $('file-hint').textContent = 'Read-only: this file is part of the debugger and cannot be debugged.'
+      } else if (state.file.instrumented) {
         btn.textContent = 'Disable debug'
         btn.className = ''
         $('file-hint').textContent = `Probes active on ${probes.size} lines. Click a line number to toggle a breakpoint.`
@@ -781,9 +833,11 @@
       const paused = !!s
       $('btn-continue').disabled = !paused
       $('btn-step').disabled = !paused
+      $('btn-into').disabled = !paused
       $('btn-eval').disabled = !paused
       $('console-input').disabled = !paused
-      $('state').textContent = paused ? '⏸ Paused at breakpoint' : 'Running'
+      const atBreakpoint = paused && state.breakpoints.some((b) => b.file === s.file && b.line === s.line)
+      $('state').textContent = !paused ? 'Running' : atBreakpoint ? '⏸ Paused at breakpoint' : '⏸ Paused (step)'
       $('state').className = 'state' + (paused ? ' paused' : '')
       renderTabs()
       renderVars()
@@ -818,10 +872,12 @@
 
     async function openFile(name, line) {
       try {
-        const file = await api(`/api/dbg/source/${encodeURIComponent(name)}`)
+        const file = await api(`/api/dbg/source/${encodePath(name)}`)
         let analysis
         try {
           analysis = analyze(file.source)
+          // Debugger files are view-only: no breakable lines.
+          if (file.readonly) analysis.probes = new Map()
         } catch (err) {
           state.file = null
           $('toolbar').hidden = true
@@ -898,9 +954,9 @@
       try {
         if (enabling) {
           const source = instrument(file.name, file.source, state.analysis.probes)
-          await api(`/api/dbg/instrument/${encodeURIComponent(file.name)}`, { method: 'POST', body: { source } })
+          await api(`/api/dbg/instrument/${encodePath(file.name)}`, { method: 'POST', body: { source } })
         } else {
-          await api(`/api/dbg/restore/${encodeURIComponent(file.name)}`, { method: 'POST' })
+          await api(`/api/dbg/restore/${encodePath(file.name)}`, { method: 'POST' })
         }
         const ok = await waitForRestart(file.name, enabling)
         toast(ok ? (enabling ? `Debug enabled on ${file.name}` : `${file.name} restored`) : 'The instance has not confirmed the change yet. Reload the page.')
@@ -1110,7 +1166,8 @@
       pb.realtime.onDisconnect = () => setConn(false)
       setConn(true)
       await loadActiveSession()
-      if (!state.file && state.files.length) openFile(state.files[0].name)
+      const first = state.files.find((f) => !f.readonly) || state.files[0]
+      if (!state.file && first) openFile(first.name)
     }
 
     function logout(msg) {
@@ -1140,8 +1197,11 @@
       if (gut) toggleBreakpoint(Number(gut.parentElement.dataset.line))
     })
     $('btn-continue').addEventListener('click', () => sendCommand('continue'))
-    // The runtime's "step" pauses at the next executed line. Step Into/Out
-    // need call-depth tracking in the runtime and come in a later phase.
+    // The runtime's "step" pauses at the next executed line, which also
+    // enters functions in debug-enabled files: that is Step Into. A real
+    // Step Over/Out needs call-depth tracking in the runtime (later phase),
+    // so for now Step Over behaves the same.
+    $('btn-into').addEventListener('click', () => sendCommand('step'))
     $('btn-step').addEventListener('click', () => sendCommand('step'))
     $('btn-eval').addEventListener('click', () => {
       showPanelTab('eval')
@@ -1173,7 +1233,7 @@
     document.addEventListener('keydown', (e) => {
       if (!state.session) return
       if (e.key === 'F8') { e.preventDefault(); sendCommand('continue') }
-      if (e.key === 'F6') { e.preventDefault(); sendCommand('step') }
+      if (e.key === 'F5' || e.key === 'F6') { e.preventDefault(); sendCommand('step') }
     })
 
     if (pb.authStore.isValid && pb.authStore.isSuperuser) startApp()
