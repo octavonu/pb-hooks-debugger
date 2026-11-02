@@ -46,9 +46,14 @@ routerAdd('GET', '/api/board/stats', (e) => {
     )
     .one(totals)
 
+  // Helper from a subfolder, to try Step Into across files.
+  const extra = require(`${__hooks}/tests/test.js`).helloWorld(totals)
+
   return e.json(200, {
     messages: totals.messages,
     likes: totals.likes,
     authors: totals.authors,
+    greeting: extra.greeting,
+    averageLikes: extra.averageLikes,
   })
 })
