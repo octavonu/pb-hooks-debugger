@@ -8,12 +8,12 @@ It only uses standard JSVM APIs (`sleep()`, `$os`, `$app.store()`, realtime), so
 
 ## Features
 
-- Browse the files in `pb_hooks` with syntax highlighting.
+- Browse the files in `pb_hooks` in a file tree, open them in editor tabs, with syntax highlighting.
 - Toggle breakpoints by clicking line numbers. Only lines inside handler functions are breakable.
 - Pause a live request at a breakpoint. The debugger shows the location and the enclosing hook, e.g. `routerAdd("GET", "/api/board/stats", ƒ)`.
-- Inspect local variables. Hook events are summarised: `record`, `collection`, `auth` and `request` come first, internals like `app` are hidden, and `Authorization`/`Cookie` headers are masked.
+- Inspect local variables in an expandable Name / Value / Type tree. Hook events are summarised: `record`, `collection`, `auth` and `request` come first, internals like `app` are hidden, and `Authorization`/`Cookie` headers are masked.
 - Evaluate expressions in the paused scope, e.g. `e.record.get('author')` or `$app.findRecordById(...)`. Expressions can also change state, e.g. `e.record.set(...)`.
-- **Continue** (F8) and **Step** (F10, to the next executed line).
+- A debug toolbar with **Resume** (F8), **Step Over** (F6, to the next executed line) and **Evaluate**. Step Into and Step Out are shown but not available yet.
 - A built-in request runner, so you can trigger hooks without leaving the page.
 
 ![The debugger paused on line 42 of messages.pb.js, showing local variables and an evaluated expression](docs/screenshot.jpg)
@@ -62,7 +62,7 @@ phio deploy
 2. Select a hook file and click **Enable debug**. PocketBase reloads its hooks within a second or two.
 3. Click a line number inside a handler to set a breakpoint.
 4. Trigger the hook from your app or from the **Send a request** panel.
-5. Inspect **Variables** and type expressions into **Evaluate**. Then press **Continue** or **Step**.
+5. Inspect **Variables** and type expressions into **Evaluate**. Then press **Resume** (F8) or **Step Over** (F6).
 6. Click **Disable debug** to restore the original file.
 
 ## How it works
@@ -94,7 +94,7 @@ Goja, the JS engine inside PocketBase, has no debugging protocol, so the debugge
 
 ## Limitations
 
-- **Step** means "pause at the next executed line" (within 3 s). There is no step into/out and no call stack.
+- **Step Over** currently means "pause at the next executed line" (within 3 s), so it also enters functions defined in debug-enabled files. Real step into/over/out and a call stack need call-depth tracking and are planned.
 - Only statements inside `{ }` blocks of functions can have breakpoints. File-level code and expression-bodied arrow functions can't.
 - Only one request can be paused at a time. Other requests run through breakpoints while one is paused.
 - A paused request resumes automatically after 5 minutes of inactivity. Proxies in front of PocketBase may time out the client sooner (Cloudflare cuts responses after about 100 s), but the handler stays paused on the server.

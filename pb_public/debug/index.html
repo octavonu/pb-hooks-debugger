@@ -89,7 +89,20 @@
     .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
     .dot.on { background: var(--ok); }
     .spacer { flex: 1; }
-    .main { display: grid; grid-template-columns: 220px minmax(0, 1fr) 380px; min-height: 0; }
+    .main {
+      display: grid; grid-template-columns: var(--left-w, 250px) minmax(0, 1fr) var(--right-w, 380px);
+      min-height: 0; position: relative;
+    }
+    /* Drag handles between the columns */
+    .splitter { position: absolute; top: 0; bottom: 0; width: 9px; cursor: col-resize; z-index: 3; touch-action: none; }
+    #split-left { left: calc(var(--left-w, 250px) - 5px); }
+    #split-right { right: calc(var(--right-w, 380px) - 4px); }
+    .splitter::after {
+      content: ""; position: absolute; top: 0; bottom: 0; left: 4px; width: 1px; background: transparent; transition: background .15s;
+    }
+    .splitter:hover::after, .splitter.dragging::after { background: var(--accent); width: 2px; left: 3.5px; }
+    body.resizing { cursor: col-resize; user-select: none; }
+    body.resizing iframe, body.resizing .code { pointer-events: none; }
     .pane { min-height: 0; overflow: auto; border-right: 1px solid var(--border); }
     .pane:last-child { border-right: 0; }
     .pane h2 {
@@ -97,20 +110,60 @@
       margin: 0; padding: 12px 14px 6px;
     }
 
-    /* Files */
-    .files { list-style: none; margin: 0; padding: 0 6px 12px; }
-    .files li button {
+    /* Small icon buttons (debug bar, pane toolbars) */
+    .ib {
+      width: 34px; height: 32px; padding: 0; display: inline-grid; place-items: center;
+      background: none; border-color: transparent; border-radius: 6px; color: var(--accent);
+    }
+    .ib svg { width: 20px; height: 20px; }
+    .pane-bar .ib { width: 28px; height: 26px; }
+    .pane-bar .ib svg { width: 15px; height: 15px; }
+    .ib:hover:not(:disabled) { background: var(--surface-2); border-color: var(--border); }
+    .ib:disabled { opacity: .3; }
+    .ib.go { color: var(--ok); }
+    .ib.plain { color: var(--muted); }
+    .iconbar { display: flex; align-items: center; gap: 2px; }
+    .iconbar .sep { width: 1px; height: 18px; background: var(--border); margin: 0 5px; }
+
+    /* Files (tree) */
+    .pane-bar { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 4px 0; }
+    .pane .pane-bar h2 { padding: 0 14px; }
+    .tree { padding: 0 6px 12px; font: .85rem var(--mono); }
+    .tree .folder {
       width: 100%; text-align: left; background: none; border: 1px solid transparent;
+      display: flex; gap: 6px; align-items: center; padding: 3px 8px; font: inherit;
+    }
+    .tree .folder .tw { width: 10px; color: var(--muted); }
+    .ico { width: 14px; height: 14px; flex: none; color: var(--muted); }
+    .ico.dir { color: var(--paused-border); }
+    .files { list-style: none; margin: 0 0 0 17px; padding: 0 0 0 6px; border-left: 1px dotted var(--border); }
+    .files li button {
+      width: 100%; text-align: left; background: none; border: 1px solid transparent; padding: 3px 8px;
       display: flex; gap: 6px; align-items: center; font-family: var(--mono); font-size: .85rem;
     }
     .files li button.active { background: var(--accent-soft); border-color: var(--accent); }
+    .files li button > span:first-of-type { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .files .badge { flex: none; }
     .badge {
       margin-left: auto; font-family: system-ui, sans-serif; font-size: .68rem; padding: 0 6px;
       border-radius: 999px; background: var(--ok); color: #fff;
     }
 
     /* Code */
-    .code-pane { display: grid; grid-template-rows: auto 1fr; background: var(--surface); }
+    .code-pane { display: grid; grid-template-rows: auto auto 1fr; background: var(--surface); }
+    .tabs { display: flex; overflow-x: auto; background: var(--bg); border-bottom: 1px solid var(--border); }
+    .tab {
+      display: flex; align-items: center; gap: 6px; padding: 5px 6px 5px 12px; cursor: pointer; white-space: nowrap;
+      font: .82rem var(--mono); color: var(--muted); border-right: 1px solid var(--border); border-top: 2px solid transparent;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { background: var(--surface); color: var(--text); border-top-color: var(--accent); }
+    .tab.paused { border-top-color: var(--paused-border); }
+    .tab .tx {
+      background: none; border: 0; padding: 0 5px; border-radius: 4px; line-height: 1.3; color: var(--muted); font-size: 1rem;
+    }
+    .tab .tx:hover { background: var(--surface-2); color: var(--text); }
+    .dbg-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
     .toolbar {
       display: flex; align-items: center; gap: 10px; padding: 8px 12px; flex-wrap: wrap;
       border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 1;
@@ -144,13 +197,43 @@
 
     /* Debug panel */
     .panel section { border-bottom: 1px solid var(--border); padding-bottom: 12px; }
-    .status { padding: 4px 14px 0; }
-    .status .where { font-family: var(--mono); font-size: .85rem; margin: 2px 0 8px; overflow-wrap: anywhere; }
+    .panel section.dbg-head { padding: 6px 8px 10px; }
+    .dbg-head .iconbar { padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+    .status { padding: 0 6px; }
+    .status .where { font-family: var(--mono); font-size: .85rem; margin: 2px 0 0; overflow-wrap: anywhere; }
     .status .state { font-weight: 600; }
     .status .state.paused { color: var(--paused-border); }
-    .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .ptabs { display: flex; padding: 0 8px; border-bottom: 1px solid var(--border); background: var(--surface); }
+    .ptab {
+      background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 7px 10px;
+      color: var(--muted); font-size: .78rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+    }
+    .ptab:hover:not(:disabled) { color: var(--text); }
+    .ptab.active { color: var(--text); border-bottom-color: var(--accent); }
+    .ptab .count { font-weight: 400; color: var(--muted); }
+    .ptab-pane { min-height: 140px; max-height: 45vh; overflow: auto; padding: 0 0 10px; border-bottom: 1px solid var(--border); }
+    .ptab-pane > .muted, .ptab-pane > .bplist, .ptab-pane > .console { margin-top: 8px; }
+
+    /* Variables tree table */
+    .vt { font: 12.5px/1.5 var(--mono); }
+    .vt-head, .vt-row { display: grid; grid-template-columns: minmax(90px, 38%) minmax(0, 1fr) 62px; gap: 8px; padding: 2px 14px; }
+    .vt-head {
+      font: 600 .68rem system-ui, sans-serif; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+      border-bottom: 1px solid var(--border); padding-top: 6px; position: sticky; top: 0; background: var(--bg);
+    }
+    .vt-row { border-bottom: 1px solid var(--surface-2); }
+    .vt-row.can { cursor: pointer; }
+    .vt-row:hover { background: var(--surface-2); }
+    .vt-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .vt-name { padding-left: calc(var(--d, 0) * 14px); color: var(--accent); }
+    .vt-name .tw { display: inline-block; width: 13px; color: var(--muted); }
+    .vt-ty { color: var(--muted); font-size: .9em; }
+    .vt-row.err .vt-val { color: var(--bp); }
     .vars { padding: 0 14px; font: 12.5px/1.5 var(--mono); }
     .var { border-bottom: 1px dashed var(--border); padding: 3px 0; }
+    .var.leaf summary { cursor: default; list-style: none; }
+    .var.leaf summary::-webkit-details-marker { display: none; }
     .var summary { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .var .k { color: var(--accent); }
     .var .ty { color: var(--muted); font-size: .9em; }
@@ -185,6 +268,7 @@
 
     @media (max-width: 1100px) {
       .main { grid-template-columns: 200px minmax(0, 1fr); }
+      .splitter { display: none; }
       .panel { grid-column: 1 / -1; border-top: 1px solid var(--border); max-height: 50vh; }
       .app { height: auto; min-height: 100%; }
     }
@@ -222,11 +306,24 @@
 
     <div class="main">
       <aside class="pane files-pane">
-        <h2>pb_hooks</h2>
-        <ul class="files" id="files"></ul>
+        <div class="pane-bar">
+          <h2>Files</h2>
+          <button class="ib plain" id="btn-refresh" title="Refresh file list">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8a5 5 0 1 1-1.5-3.6"/><path d="M13 2.5v3h-3"/></svg>
+          </button>
+        </div>
+        <div class="tree">
+          <button class="folder" id="tree-root" aria-expanded="true">
+            <span class="tw">▾</span>
+            <svg class="ico dir" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.5A1 1 0 0 1 2.5 2.5h3.6l1.5 1.5h5.9a1 1 0 0 1 1 1v7.5a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1z"/></svg>
+            pb_hooks
+          </button>
+          <ul class="files" id="files"></ul>
+        </div>
       </aside>
 
       <section class="pane code-pane">
+        <div class="tabs" id="tabs" hidden></div>
         <div class="toolbar" id="toolbar" hidden>
           <span class="name" id="file-name"></span>
           <button id="toggle-debug"></button>
@@ -238,35 +335,49 @@
       </section>
 
       <aside class="pane panel">
-        <section>
-          <h2>Execution</h2>
+        <section class="dbg-head">
+          <div class="iconbar" role="toolbar" aria-label="Debugger">
+            <button class="ib go" id="btn-continue" disabled title="Resume (F8)" aria-label="Resume">
+              <svg viewBox="0 0 16 16" fill="currentColor"><rect x="2" y="3" width="2.4" height="10" rx=".6"/><path d="M6.5 3.2v9.6a.5.5 0 0 0 .77.42l7.1-4.8a.5.5 0 0 0 0-.84l-7.1-4.8a.5.5 0 0 0-.77.42z"/></svg>
+            </button>
+            <span class="sep"></span>
+            <button class="ib" id="btn-into" disabled title="Step Into (not available yet)" aria-label="Step Into">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5v7.5M4.8 6.2 8 9.4l3.2-3.2"/><path d="M4 13.5h8" stroke-width="2.2"/></svg>
+            </button>
+            <button class="ib" id="btn-step" disabled title="Step Over (F6)" aria-label="Step Over">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 9.5a5.5 5.5 0 0 1 10.6-2"/><path d="M13.6 3.9v3.9H9.7"/><path d="M2 13.5h12" stroke-width="2.2"/></svg>
+            </button>
+            <button class="ib" id="btn-out" disabled title="Step Out (not available yet)" aria-label="Step Out">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13.5h6" stroke-width="2.2"/><path d="M11.5 13.5V3M8.3 6.2l3.2-3.2 3.2 3.2"/></svg>
+            </button>
+            <span class="sep"></span>
+            <button class="ib" id="btn-eval" disabled title="Evaluate expression" aria-label="Evaluate expression">
+              <svg viewBox="0 0 16 16" fill="currentColor"><text x="8" y="7" text-anchor="middle" font-size="6.6" font-weight="700" font-family="ui-monospace, Menlo, monospace">x+y</text><text x="8" y="14.6" text-anchor="middle" font-size="6.6" font-weight="700" font-family="ui-monospace, Menlo, monospace">=?</text></svg>
+            </button>
+          </div>
           <div class="status">
             <div class="state" id="state">Running</div>
             <div class="where" id="where">No breakpoint hit.</div>
-            <div class="controls">
-              <button class="primary" id="btn-continue" disabled title="F8">Continue <kbd>F8</kbd></button>
-              <button id="btn-step" disabled title="F10">Step <kbd>F10</kbd></button>
-            </div>
           </div>
         </section>
 
-        <section>
-          <h2>Variables</h2>
-          <div class="vars" id="vars"><p class="muted">Shown while execution is paused.</p></div>
-        </section>
-
-        <section>
-          <h2>Evaluate</h2>
+        <div class="ptabs" role="tablist">
+          <button class="ptab active" data-tab="vars" role="tab">Variables</button>
+          <button class="ptab" data-tab="bps" role="tab">Breakpoints <span class="count" id="bp-count"></span></button>
+          <button class="ptab" data-tab="eval" role="tab">Evaluate</button>
+        </div>
+        <div class="ptab-pane" id="pane-vars">
+          <div class="vt" id="vars"><p class="muted pad">Shown while execution is paused.</p></div>
+        </div>
+        <div class="ptab-pane" id="pane-bps" hidden>
+          <ul class="bplist" id="bplist"></ul>
+        </div>
+        <div class="ptab-pane" id="pane-eval" hidden>
           <div class="console">
             <div class="out" id="console-out"></div>
             <input id="console-input" placeholder="e.g. e.record.get('author')" disabled spellcheck="false" />
           </div>
-        </section>
-
-        <section>
-          <h2>Breakpoints</h2>
-          <ul class="bplist" id="bplist"></ul>
-        </section>
+        </div>
 
         <section>
           <h2>Send a request</h2>
@@ -287,6 +398,9 @@
           </div>
         </section>
       </aside>
+
+      <div class="splitter" id="split-left" role="separator" aria-orientation="vertical" title="Drag to resize · double-click to reset"></div>
+      <div class="splitter" id="split-right" role="separator" aria-orientation="vertical" title="Drag to resize · double-click to reset"></div>
     </div>
   </div>
 
@@ -309,6 +423,8 @@
       analysis: null,    // { probes: Map(line -> probe), tokens }
       breakpoints: [],   // records from dbg_breakpoints
       session: null,     // the currently paused session
+      tabs: [],          // names of the files open in editor tabs
+      expanded: new Set(), // expanded paths in the Variables tree, e.g. "/e/record"
       evalSeq: 0,
       pendingEvals: new Map(),
     }
@@ -454,12 +570,58 @@
         const li = document.createElement('li')
         const btn = document.createElement('button')
         btn.className = state.file && state.file.name === f.name ? 'active' : ''
-        btn.innerHTML = `<span>${esc(f.name)}</span>${f.instrumented ? '<span class="badge">debug</span>' : ''}`
+        btn.innerHTML = `${FILE_ICON}<span>${esc(f.name)}</span>${f.instrumented ? '<span class="badge">debug</span>' : ''}`
         btn.addEventListener('click', () => openFile(f.name))
         li.append(btn)
         $('files').append(li)
       })
       if (!state.files.length) $('files').innerHTML = '<li class="muted pad">No files.</li>'
+      renderTabs()
+    }
+
+    const FILE_ICON = '<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M3.5 1.5h6l3 3v10h-9z"/><path d="M9.5 1.5v3h3"/></svg>'
+
+    function renderTabs() {
+      const bar = $('tabs')
+      bar.innerHTML = ''
+      bar.hidden = !state.tabs.length
+      state.tabs.forEach((name) => {
+        const f = state.files.find((x) => x.name === name)
+        const tab = document.createElement('div')
+        tab.className = ['tab', state.file?.name === name && 'active', state.session?.file === name && 'paused'].filter(Boolean).join(' ')
+        tab.title = name + (f?.instrumented ? ' (debug enabled)' : '')
+        tab.innerHTML = `${f?.instrumented ? '<span class="dbg-dot"></span>' : ''}<span>${esc(name)}</span><button class="tx" title="Close" aria-label="Close ${esc(name)}">×</button>`
+        tab.addEventListener('click', (e) => {
+          if (e.target.closest('.tx')) closeTab(name)
+          else if (state.file?.name !== name) openFile(name)
+        })
+        bar.append(tab)
+      })
+    }
+
+    function closeTab(name) {
+      const i = state.tabs.indexOf(name)
+      if (i === -1) return
+      state.tabs.splice(i, 1)
+      if (state.file?.name === name) {
+        const next = state.tabs[Math.min(i, state.tabs.length - 1)]
+        if (next) return openFile(next)
+        state.file = null
+        state.analysis = null
+        $('toolbar').hidden = true
+        $('code').innerHTML = '<p class="empty-state">Pick a file on the left.</p>'
+        renderFiles()
+        return
+      }
+      renderTabs()
+    }
+
+    function showPanelTab(id) {
+      document.querySelectorAll('.ptab').forEach((b) => {
+        b.classList.toggle('active', b.dataset.tab === id)
+        b.setAttribute('aria-selected', b.dataset.tab === id)
+      })
+      document.querySelectorAll('.ptab-pane').forEach((p) => (p.hidden = p.id !== 'pane-' + id))
     }
 
     function renderCode() {
@@ -513,6 +675,7 @@
     function renderBreakpoints() {
       const list = $('bplist')
       list.innerHTML = ''
+      $('bp-count').textContent = state.breakpoints.length ? `(${state.breakpoints.length})` : ''
       if (!state.breakpoints.length) {
         list.innerHTML = '<li class="muted">None. Click a line number.</li>'
         return
@@ -539,8 +702,78 @@
         const pre = document.createElement('pre')
         pre.textContent = isComplex ? JSON.stringify(v.value, null, 2) : preview
         wrap.append(pre)
+      } else {
+        wrap.classList.add('leaf')
       }
       return wrap
+    }
+
+    // Variables as a tree table (Name | Value | Type). Values are the plain
+    // JSON snapshots made by the runtime; nested levels expand on click.
+    const plainType = (v) => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v)
+
+    function previewOf(value, type) {
+      if (value === null) return 'null'
+      if (Array.isArray(value)) return `Array(${value.length})`
+      if (typeof value === 'object') {
+        const keys = eventOrder(Object.entries(value)).map(([k]) => k)
+        return '{' + keys.slice(0, 5).join(', ') + (keys.length > 5 ? ', …' : '') + '}'
+      }
+      // Runtime markers like ‹undefined› or ƒ name() are shown as they are.
+      if (typeof value === 'string' && type === 'string' && !/^[‹ƒ]/.test(value)) return JSON.stringify(value)
+      return String(value)
+    }
+
+    // Locals are stored in a JSON field, which sorts keys alphabetically, so
+    // the runtime's ordering of hook events is lost. Put the useful fields
+    // of an event first again.
+    const EVENT_KEYS = ['record', 'collection', 'auth', 'request', 'requestEvent']
+    function eventOrder(entries) {
+      const keys = entries.map(([k]) => k)
+      if (!keys.includes('request') && !keys.includes('requestEvent')) return entries
+      const rank = (k) => (EVENT_KEYS.includes(k) ? EVENT_KEYS.indexOf(k) : EVENT_KEYS.length)
+      return [...entries].sort((a, b) => rank(a[0]) - rank(b[0]))
+    }
+
+    function renderVarRows(container, entries, depth, prefix) {
+      entries.forEach(([name, value, type]) => {
+        const path = prefix + '/' + name
+        const complex = value !== null && typeof value === 'object' && Object.keys(value).length > 0
+        const open = complex && state.expanded.has(path)
+        const row = document.createElement('div')
+        row.className = ['vt-row', complex && 'can', type === 'error' && 'err'].filter(Boolean).join(' ')
+        row.style.setProperty('--d', depth)
+        if (complex) row.dataset.path = path
+        const preview = previewOf(value, type)
+        row.innerHTML = `<span class="vt-name"><span class="tw">${complex ? (open ? '▾' : '▸') : ''}</span>${esc(name)}</span><span class="vt-val"></span><span class="vt-ty">${esc(type)}</span>`
+        row.querySelector('.vt-val').textContent = preview
+        row.querySelector('.vt-val').title = preview
+        container.append(row)
+        if (open) {
+          const children = Array.isArray(value)
+            ? value.map((v, i) => [String(i), v, plainType(v)])
+            : eventOrder(Object.entries(value)).map(([k, v]) => [k, v, plainType(v)])
+          renderVarRows(container, children, depth + 1, path)
+        }
+      })
+    }
+
+    function renderVars() {
+      const vars = $('vars')
+      const s = state.session
+      if (!s) {
+        vars.innerHTML = '<p class="muted pad">Shown while execution is paused.</p>'
+        return
+      }
+      const entries = Object.entries(s.locals || {}).map(([k, v]) => [k, v.value, v.type])
+      if (!entries.length) {
+        vars.innerHTML = '<p class="muted pad">No local variables in scope.</p>'
+        return
+      }
+      const scroll = $('pane-vars').scrollTop
+      vars.innerHTML = '<div class="vt-head"><span>Name</span><span>Value</span><span>Type</span></div>'
+      renderVarRows(vars, entries, 0, '')
+      $('pane-vars').scrollTop = scroll
     }
 
     function renderSession() {
@@ -548,22 +781,19 @@
       const paused = !!s
       $('btn-continue').disabled = !paused
       $('btn-step').disabled = !paused
+      $('btn-eval').disabled = !paused
       $('console-input').disabled = !paused
       $('state').textContent = paused ? '⏸ Paused at breakpoint' : 'Running'
       $('state').className = 'state' + (paused ? ' paused' : '')
+      renderTabs()
+      renderVars()
 
       if (!paused) {
         $('where').textContent = 'No breakpoint hit.'
-        $('vars').innerHTML = '<p class="muted">Shown while execution is paused.</p>'
         return
       }
       const ctx = state.file && state.file.name === s.file ? state.analysis.probes.get(s.line)?.ctx : null
       $('where').textContent = `${s.file}:${s.line}${ctx ? '  —  ' + ctx : ''}`
-      const vars = $('vars')
-      vars.innerHTML = ''
-      const entries = Object.entries(s.locals || {})
-      if (!entries.length) vars.innerHTML = '<p class="muted">No local variables in scope.</p>'
-      entries.forEach(([k, v]) => vars.append(renderValue(k, v)))
     }
 
     function scrollToLine(line) {
@@ -600,6 +830,7 @@
         }
         state.file = file
         state.analysis = analysis
+        if (!state.tabs.includes(name)) state.tabs.push(name)
         renderFiles()
         renderBreakpoints()
         renderCode()
@@ -721,6 +952,7 @@
 
     async function setPaused(session) {
       state.session = session
+      if (!$('pane-bps').hidden) showPanelTab('vars')
       state.evalSeq = Math.max(state.evalSeq, session.evalSeq || 0)
       if (!state.file || state.file.name !== session.file) await openFile(session.file)
       else renderCode()
@@ -793,6 +1025,67 @@
     /* Startup                                                            */
     /* ------------------------------------------------------------------ */
 
+    /* ------------------------------------------------------------------ */
+    /* Resizable columns                                                   */
+    /* ------------------------------------------------------------------ */
+
+    const LAYOUT_KEY = 'dbg.layout'
+    const DEFAULT_LAYOUT = { left: 250, right: 380 }
+    const MIN_LEFT = 150, MIN_RIGHT = 260, MIN_CODE = 320
+    let layout = { ...DEFAULT_LAYOUT }
+    let layoutReady = false
+
+    function applyLayout(next, save) {
+      const main = document.querySelector('.main')
+      const total = main.clientWidth
+      let { left, right } = next
+      if (total) {
+        left = Math.max(MIN_LEFT, Math.min(left, total - right - MIN_CODE))
+        right = Math.max(MIN_RIGHT, Math.min(right, total - left - MIN_CODE))
+      }
+      layout = { left: Math.round(left), right: Math.round(right) }
+      main.style.setProperty('--left-w', layout.left + 'px')
+      main.style.setProperty('--right-w', layout.right + 'px')
+      if (save) {
+        try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)) } catch {}
+      }
+    }
+
+    function initSplitter(id, side) {
+      const el = $(id)
+      el.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return
+        e.preventDefault()
+        const rect = document.querySelector('.main').getBoundingClientRect()
+        el.setPointerCapture(e.pointerId)
+        el.classList.add('dragging')
+        document.body.classList.add('resizing')
+        const move = (ev) => applyLayout(side === 'left'
+          ? { left: ev.clientX - rect.left, right: layout.right }
+          : { left: layout.left, right: rect.right - ev.clientX })
+        const up = () => {
+          el.removeEventListener('pointermove', move)
+          el.classList.remove('dragging')
+          document.body.classList.remove('resizing')
+          applyLayout(layout, true)
+        }
+        el.addEventListener('pointermove', move)
+        el.addEventListener('pointerup', up, { once: true })
+        el.addEventListener('pointercancel', up, { once: true })
+      })
+      el.addEventListener('dblclick', () => applyLayout({ ...layout, [side]: DEFAULT_LAYOUT[side] }, true))
+    }
+
+    function initLayout() {
+      let saved = null
+      try { saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null') } catch {}
+      if (saved && typeof saved.left === 'number' && typeof saved.right === 'number') layout = saved
+      applyLayout(layout)
+      initSplitter('split-left', 'left')
+      initSplitter('split-right', 'right')
+      window.addEventListener('resize', () => applyLayout(layout))
+    }
+
     function setConn(on) {
       $('conn-dot').classList.toggle('on', on)
       $('conn-text').textContent = on ? 'live' : 'reconnecting…'
@@ -801,6 +1094,10 @@
     async function startApp() {
       $('login-view').hidden = true
       $('app-view').hidden = false
+      if (!layoutReady) {
+        layoutReady = true
+        initLayout()
+      }
       $('who').textContent = pb.authStore.record?.email || ''
       try {
         await Promise.all([loadFiles(), loadBreakpoints()])
@@ -843,7 +1140,29 @@
       if (gut) toggleBreakpoint(Number(gut.parentElement.dataset.line))
     })
     $('btn-continue').addEventListener('click', () => sendCommand('continue'))
+    // The runtime's "step" pauses at the next executed line. Step Into/Out
+    // need call-depth tracking in the runtime and come in a later phase.
     $('btn-step').addEventListener('click', () => sendCommand('step'))
+    $('btn-eval').addEventListener('click', () => {
+      showPanelTab('eval')
+      $('console-input').focus()
+    })
+    document.querySelectorAll('.ptab').forEach((b) => b.addEventListener('click', () => showPanelTab(b.dataset.tab)))
+    $('vars').addEventListener('click', (e) => {
+      const row = e.target.closest('.vt-row.can')
+      if (!row) return
+      const path = row.dataset.path
+      if (state.expanded.has(path)) state.expanded.delete(path)
+      else state.expanded.add(path)
+      renderVars()
+    })
+    $('tree-root').addEventListener('click', () => {
+      const open = $('files').hidden
+      $('files').hidden = !open
+      $('tree-root').setAttribute('aria-expanded', open)
+      $('tree-root').querySelector('.tw').textContent = open ? '▾' : '▸'
+    })
+    $('btn-refresh').addEventListener('click', () => loadFiles().catch(() => toast('Cannot load files.')))
     $('console-input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         evaluate(e.target.value)
@@ -854,7 +1173,7 @@
     document.addEventListener('keydown', (e) => {
       if (!state.session) return
       if (e.key === 'F8') { e.preventDefault(); sendCommand('continue') }
-      if (e.key === 'F10') { e.preventDefault(); sendCommand('step') }
+      if (e.key === 'F6') { e.preventDefault(); sendCommand('step') }
     })
 
     if (pb.authStore.isValid && pb.authStore.isSuperuser) startApp()

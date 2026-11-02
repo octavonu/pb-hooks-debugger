@@ -32,7 +32,7 @@ function breakpointIndex() {
 
 // Useful hook event fields come first; `app` (the PocketBase instance),
 // `response` (the HTTP writer) and `event` are just internal noise.
-const PRIORITY_KEYS = ['record', 'collection', 'auth', 'request']
+const PRIORITY_KEYS = ['record', 'collection', 'auth', 'request', 'requestEvent']
 const HIDDEN_KEYS = ['app', 'response', 'event']
 const SECRET_HEADERS = ['authorization', 'cookie', 'set-cookie']
 
@@ -109,9 +109,11 @@ function toPlain(value, depth, seen) {
 
   const keys = []
   for (const key in value) keys.push(key)
-  // On a hook event (has `request`) skip the internal fields and put the
-  // useful ones first.
-  const isEvent = keys.indexOf('request') !== -1 && keys.indexOf('app') !== -1
+  // On a hook event skip the internal fields and put the useful ones first.
+  // Router events have `request` directly; record request events (e.g.
+  // onRecordCreateRequest) keep it under `requestEvent`.
+  const isEvent =
+    keys.indexOf('app') !== -1 && (keys.indexOf('request') !== -1 || keys.indexOf('requestEvent') !== -1)
   const ordered = isEvent
     ? PRIORITY_KEYS.filter((k) => keys.indexOf(k) !== -1).concat(
         keys.filter((k) => PRIORITY_KEYS.indexOf(k) === -1 && HIDDEN_KEYS.indexOf(k) === -1)
