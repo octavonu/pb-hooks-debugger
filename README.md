@@ -13,7 +13,8 @@ It only uses standard JSVM APIs (`sleep()`, `$os`, `$app.store()`, realtime), so
 - Pause a live request at a breakpoint. The debugger shows the location and the enclosing hook, e.g. `routerAdd("GET", "/api/board/stats", ƒ)`.
 - Inspect local variables in an expandable Name / Value / Type tree. Hook events are summarised: `record`, `collection`, `auth` and `request` come first, internals like `app` are hidden, and `Authorization`/`Cookie` headers are masked.
 - Evaluate expressions in the paused scope, e.g. `e.record.get('author')` or `$app.findRecordById(...)`. Expressions can also change state, e.g. `e.record.set(...)`.
-- A debug toolbar with **Resume** (F8), **Step Into** (F5), **Step Over** (F6) and **Evaluate**. Step Into follows calls into other debug-enabled files, e.g. a helper in a subfolder loaded with `require()`. Step Out is shown but not available yet.
+- A debug toolbar with **Resume** (F8), **Step Into** (F5), **Step Over** (F6), **Step Out** (F7) and **Evaluate**. Step Into follows calls into other debug-enabled files, e.g. a helper in a subfolder loaded with `require()`.
+- A **call stack**. Click a frame to open its file at the calling line and see that frame's variables; **Evaluate** runs in the selected frame.
 - A built-in request runner, so you can trigger hooks without leaving the page.
 
 ![The debugger paused on line 42 of messages.pb.js, showing local variables and an evaluated expression](docs/screenshot.jpg)
@@ -40,7 +41,7 @@ The migrations create the debugger's two collections and the demo `messages` col
 You only need the debugger files. The demo message board is optional.
 
 - `pb_hooks/dbg.pb.js`, `pb_hooks/_dbg_runtime.js`, `pb_hooks/_dbg_server.js`
-- `pb_migrations/1792866000_create_debugger.js`
+- `pb_migrations/1792866000_create_debugger.js`, `pb_migrations/1792870000_add_dbg_session_stack.js`
 - `pb_public/debug/index.html`
 
 ### Hosted instances (e.g. PocketHost)
@@ -62,7 +63,7 @@ phio deploy
 2. Select a hook file and click **Enable debug**. PocketBase reloads its hooks within a second or two.
 3. Click a line number inside a handler to set a breakpoint.
 4. Trigger the hook from your app or from the **Send a request** panel.
-5. Inspect **Variables** and type expressions into **Evaluate**. Then press **Resume** (F8), **Step Into** (F5) or **Step Over** (F6).
+5. Inspect **Variables** and type expressions into **Evaluate**. Then press **Resume** (F8), **Step Into** (F5), **Step Over** (F6) or **Step Out** (F7). Click a frame in the call stack to inspect the caller.
 6. Click **Disable debug** to restore the original file.
 
 ## How it works
@@ -75,10 +76,13 @@ Goja, the JS engine inside PocketBase, has no debugging protocol, so the debugge
    /*@dbg*/;require(__hooks+"/_dbg_runtime.js").bp("messages.pb.js",8,(__dbgx)=>eval(__dbgx),["e","author","body"]);/*@/dbg*/const author = ...
    ```
 
-2. The server accepts the instrumented file only if removing every probe (matched by a strict regex) gives back the original byte for byte. This means the instrument route can't be used to write arbitrary code. The original is kept in `pb_data/dbg_originals/` and restored when you disable debug.
+   Each function body is also wrapped, still on the same lines, in `enter();try{ … }finally{exit()}` so the runtime knows the call stack.
+
+2. The server accepts the instrumented file only if removing every probe and wrapper (matched exactly) gives back the original byte for byte. This means the instrument route can't be used to write arbitrary code. The original is kept in `pb_data/dbg_originals/` and restored when you disable debug.
 3. Writing to `pb_hooks` makes PocketBase reload its hooks. From then on, each probe does a cheap check against a breakpoint index kept in `$app.store()`.
 4. On a hit, the probe snapshots the locals by evaluating each name through the closure. This is a direct `eval`, so it sees the real scope. The snapshot is stored in a `dbg_sessions` record, and the handler then blocks with `sleep()` while polling that record.
-5. The UI receives the session over PocketBase realtime and writes commands (`continue`, `step`, `eval`) back into the record, where the paused handler picks them up.
+5. The UI receives the session over PocketBase realtime and writes commands (`continue`, `into`, `over`, `out`, `frame`, `eval`) back into the record, where the paused handler picks them up.
+6. `require()` caches modules per JS VM, and a VM runs one handler at a time, so the runtime keeps the call stack in a module-level array. **Step Over** pauses at the next line in the same VM at the same or a lower depth; **Step Out** at a lower depth; **Step Into** at the next line anywhere.
 
 ## Files
 
@@ -89,12 +93,16 @@ Goja, the JS engine inside PocketBase, has no debugging protocol, so the debugge
 | `pb_hooks/_dbg_server.js` | File handling and verification of instrumented sources |
 | `pb_hooks/_dbg_runtime.js` | The `bp()` probe: breakpoint checks, pausing, variable snapshots, eval |
 | `pb_migrations/1792866000_create_debugger.js` | `dbg_breakpoints` and `dbg_sessions` collections (superuser-only) |
+| `pb_migrations/1792870000_add_dbg_session_stack.js` | Adds the call stack fields (`stack`, `frame`) to `dbg_sessions` |
 | `pb_hooks/messages.pb.js`, `pb_public/index.html`, `pb_migrations/1792863703_create_messages.js` | Optional demo: a small realtime message board to debug |
 | `.phioconfig` | Only used by PocketHost's `phio` CLI; run `phio link` to point it at your own instance |
 
 ## Limitations
 
-- Stepping means "pause at the next executed line" (within 3 s). It can only stop in debug-enabled files; calls into other code run without pausing. For now **Step Over** behaves like **Step Into** (it also enters functions in debug-enabled files). A real step over/out and a call stack need call-depth tracking and are planned.
+- Stepping only stops in debug-enabled files, within 3 s; calls into other code run without pausing. Stepping past the end of a handler resumes the request.
+- The call stack only contains functions from debug-enabled files. Async and generator functions, and functions starting with a `"use strict"` directive, get line probes but no stack frame.
+- The call stack is per JS VM. A hook triggered by another hook (e.g. by `e.app.save()`) may run in a different VM; then it has its own call stack and **Step Over/Out** don't cross between them (**Step Into** does).
+- Files instrumented by an older version of the debugger have no stack tracking: click **Disable debug** and **Enable debug** again.
 - PocketBase auto-loads only `*.pb.js` hook files. Other `.js` files (e.g. helpers in subfolders) run only when a hook `require()`s them, so their breakpoints only hit then.
 - Only statements inside `{ }` blocks of functions can have breakpoints. File-level code and expression-bodied arrow functions can't.
 - Only one request can be paused at a time. Other requests run through breakpoints while one is paused.

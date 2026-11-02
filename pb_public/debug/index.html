@@ -191,6 +191,7 @@
     .ln.bp .gut { color: var(--bp); }
     .ln .src { padding-right: 16px; }
     .ln.paused { background: var(--paused-bg); box-shadow: inset 3px 0 0 var(--paused-border); }
+    .ln.frame { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
     .t-kw { color: var(--c-kw); }
     .t-str { color: var(--c-str); }
     .t-num { color: var(--c-num); }
@@ -206,6 +207,13 @@
     .status .where { font-family: var(--mono); font-size: .85rem; margin: 2px 0 0; overflow-wrap: anywhere; }
     .status .state { font-weight: 600; }
     .status .state.paused { color: var(--paused-border); }
+    .stack { list-style: none; margin: 4px -6px 0; padding: 0; font: 12.5px/1.45 var(--mono); max-height: 150px; overflow: auto; }
+    .stack li { display: flex; gap: 8px; align-items: baseline; padding: 2px 6px; border-radius: 5px; cursor: pointer; }
+    .stack li:hover { background: var(--surface-2); }
+    .stack li.sel { background: var(--accent-soft); }
+    .stack .mark { width: 10px; flex: none; color: var(--paused-border); }
+    .stack .fn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .stack .loc { color: var(--muted); white-space: nowrap; }
 
     .ptabs { display: flex; padding: 0 8px; border-bottom: 1px solid var(--border); background: var(--surface); }
     .ptab {
@@ -350,7 +358,7 @@
             <button class="ib" id="btn-step" disabled title="Step Over (F6)" aria-label="Step Over">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 9.5a5.5 5.5 0 0 1 10.6-2"/><path d="M13.6 3.9v3.9H9.7"/><path d="M2 13.5h12" stroke-width="2.2"/></svg>
             </button>
-            <button class="ib" id="btn-out" disabled title="Step Out (not available yet)" aria-label="Step Out">
+            <button class="ib" id="btn-out" disabled title="Step Out (F7)" aria-label="Step Out">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13.5h6" stroke-width="2.2"/><path d="M11.5 13.5V3M8.3 6.2l3.2-3.2 3.2 3.2"/></svg>
             </button>
             <span class="sep"></span>
@@ -361,6 +369,7 @@
           <div class="status">
             <div class="state" id="state">Running</div>
             <div class="where" id="where">No breakpoint hit.</div>
+            <ol class="stack" id="stack" aria-label="Call stack" hidden></ol>
           </div>
         </section>
 
@@ -427,6 +436,8 @@
       breakpoints: [],   // records from dbg_breakpoints
       session: null,     // the currently paused session
       tabs: [],          // names of the files open in editor tabs
+      analyses: new Map(), // file name -> analysis (for call stack names)
+      frameSel: 0,       // call stack frame selected in the UI (0 = top)
       collapsed: new Set(), // folder paths collapsed in the file tree
       expanded: new Set(), // expanded paths in the Variables tree, e.g. "/e/record"
       evalSeq: 0,
@@ -510,11 +521,19 @@
         allowReturnOutsideFunction: true, allowHashBang: true,
       })
       const probes = new Map()
+      const wraps = []
 
       ;(function visit(node, parent, scopes, ctx) {
         if (isFn(node)) {
           scopes = scopes.concat([scopeNames(node)])
           ctx = describeFn(node, parent, src)
+          // Call stack tracking: enter()/exit() around block bodies. Skipped
+          // for async/generator functions (they suspend mid-body) and bodies
+          // starting with a directive like "use strict".
+          const body = node.body
+          if (body.type === 'BlockStatement' && !node.async && !node.generator && !(body.body[0] && body.body[0].directive)) {
+            wraps.push({ start: body.start + 1, end: body.end - 1 })
+          }
         }
         // Probes only go before statements in blocks inside functions
         // (file-level code runs at startup).
@@ -529,7 +548,7 @@
         childNodes(node).forEach((child) => visit(child, node, scopes, ctx))
       })(ast, null, [], null)
 
-      return { probes, classes: tokenClasses(src) }
+      return { probes, wraps, classes: tokenClasses(src) }
     }
 
     // Syntax highlighting based on the acorn tokenizer.
@@ -553,14 +572,25 @@
       return ranges.sort((a, b) => a[0] - b[0])
     }
 
-    function instrument(name, src, probes) {
+    const ENTER_SNIPPET = '/*@dbg*/;require(__hooks+"/_dbg_runtime.js").enter();try{/*@/dbg*/'
+    const EXIT_SNIPPET = '/*@dbg*/}finally{require(__hooks+"/_dbg_runtime.js").exit()}/*@/dbg*/'
+
+    // Inserts the probes and the enter()/exit() wrappers without adding any
+    // newline, so line numbers stay the same. At the same offset the order
+    // must be: enter, probe, exit.
+    function instrument(name, src, analysis) {
+      const inserts = []
+      analysis.wraps.forEach((w) => {
+        inserts.push([w.start, 0, ENTER_SNIPPET])
+        inserts.push([w.end, 2, EXIT_SNIPPET])
+      })
+      analysis.probes.forEach((p) => {
+        inserts.push([p.offset, 1, `/*@dbg*/;require(__hooks+"/_dbg_runtime.js").bp(${JSON.stringify(name)},${p.line},(__dbgx)=>eval(__dbgx),${JSON.stringify(p.names)});/*@/dbg*/`])
+      })
       let out = src
-      ;[...probes.values()]
-        .sort((a, b) => b.offset - a.offset)
-        .forEach((p) => {
-          const probe = `/*@dbg*/;require(__hooks+"/_dbg_runtime.js").bp(${JSON.stringify(name)},${p.line},(__dbgx)=>eval(__dbgx),${JSON.stringify(p.names)});/*@/dbg*/`
-          out = out.slice(0, p.offset) + probe + out.slice(p.offset)
-        })
+      inserts
+        .sort((a, b) => b[0] - a[0] || b[1] - a[1])
+        .forEach(([offset, , text]) => (out = out.slice(0, offset) + text + out.slice(offset)))
       return out + MARKER
     }
 
@@ -679,7 +709,11 @@
       const { source } = state.file
       const { probes, classes } = state.analysis
       const bpLines = new Set(state.breakpoints.filter((b) => b.file === state.file.name).map((b) => b.line))
-      const pausedLine = state.session && state.session.file === state.file.name ? state.session.line : null
+      const stack = state.session ? frameList(state.session) : []
+      const top = stack[0]
+      const sel = state.frameSel > 0 ? stack[state.frameSel] : null
+      const pausedLine = top && top.file === state.file.name ? top.line : null
+      const frameLine = sel && sel.file === state.file.name ? sel.line : null
 
       // Build the HTML line by line, keeping the classes of tokens that
       // span several lines (block comments, template strings).
@@ -699,7 +733,7 @@
         }
         out += esc(source.slice(cur, lineEnd))
         const n = i + 1
-        const cls = ['ln', probes.has(n) && 'can', bpLines.has(n) && 'bp', pausedLine === n && 'paused'].filter(Boolean).join(' ')
+        const cls = ['ln', probes.has(n) && 'can', bpLines.has(n) && 'bp', pausedLine === n && 'paused', frameLine === n && 'frame'].filter(Boolean).join(' ')
         return `<div class="${cls}" data-line="${n}"><span class="gut">${n}</span><span class="src">${out || ' '}</span></div>`
       })
       code.innerHTML = html.join('')
@@ -817,6 +851,10 @@
         vars.innerHTML = '<p class="muted pad">Shown while execution is paused.</p>'
         return
       }
+      if (state.frameSel !== (s.frame || 0)) {
+        vars.innerHTML = '<p class="muted pad">Loading frame…</p>'
+        return
+      }
       const entries = Object.entries(s.locals || {}).map(([k, v]) => [k, v.value, v.type])
       if (!entries.length) {
         vars.innerHTML = '<p class="muted pad">No local variables in scope.</p>'
@@ -834,6 +872,7 @@
       $('btn-continue').disabled = !paused
       $('btn-step').disabled = !paused
       $('btn-into').disabled = !paused
+      $('btn-out').disabled = !paused || frameList(s).length < 2
       $('btn-eval').disabled = !paused
       $('console-input').disabled = !paused
       const atBreakpoint = paused && state.breakpoints.some((b) => b.file === s.file && b.line === s.line)
@@ -842,12 +881,61 @@
       renderTabs()
       renderVars()
 
+      $('where').hidden = paused
+      $('stack').hidden = !paused
       if (!paused) {
         $('where').textContent = 'No breakpoint hit.'
         return
       }
-      const ctx = state.file && state.file.name === s.file ? state.analysis.probes.get(s.line)?.ctx : null
-      $('where').textContent = `${s.file}:${s.line}${ctx ? '  —  ' + ctx : ''}`
+      renderStack()
+    }
+
+    // The session's call stack, top frame first. Older runtimes only sent
+    // file/line.
+    function frameList(s) {
+      return s.stack && s.stack.length ? s.stack : [{ file: s.file, line: s.line }]
+    }
+
+    const pendingAnalyses = new Set()
+    async function ensureAnalysis(name) {
+      if (state.analyses.has(name) || pendingAnalyses.has(name)) return
+      pendingAnalyses.add(name)
+      try {
+        const file = await api(`/api/dbg/source/${encodePath(name)}`)
+        state.analyses.set(name, analyze(file.source))
+        if (state.session) renderStack()
+      } catch {
+      } finally {
+        pendingAnalyses.delete(name)
+      }
+    }
+
+    function renderStack() {
+      const list = $('stack')
+      list.innerHTML = ''
+      frameList(state.session).forEach((f, i) => {
+        const analysis = state.analyses.get(f.file)
+        if (!analysis) ensureAnalysis(f.file)
+        const ctx = analysis?.probes.get(f.line)?.ctx || 'anonymous function'
+        const li = document.createElement('li')
+        li.className = i === state.frameSel ? 'sel' : ''
+        li.title = `${ctx} — ${f.file}:${f.line}`
+        li.innerHTML = `<span class="mark">${i === 0 ? '▶' : ''}</span><span class="fn">${esc(ctx)}</span><span class="loc">${esc(baseName(f.file))}:${f.line}</span>`
+        li.addEventListener('click', () => selectFrame(i))
+        list.append(li)
+      })
+    }
+
+    async function selectFrame(i) {
+      const s = state.session
+      const f = s && frameList(s)[i]
+      if (!f) return
+      state.frameSel = i
+      if (!state.file || state.file.name !== f.file) await openFile(f.file)
+      else renderCode()
+      renderSession()
+      scrollToLine(f.line)
+      if (i !== (s.frame || 0)) sendCommand('frame', { frame: i })
     }
 
     function scrollToLine(line) {
@@ -861,6 +949,7 @@
 
     async function loadFiles() {
       state.files = await api('/api/dbg/files')
+      state.analyses.clear()
       renderFiles()
       renderBreakpoints()
     }
@@ -886,6 +975,7 @@
         }
         state.file = file
         state.analysis = analysis
+        state.analyses.set(name, analysis)
         if (!state.tabs.includes(name)) state.tabs.push(name)
         renderFiles()
         renderBreakpoints()
@@ -953,7 +1043,7 @@
       $('file-hint').textContent = enabling ? 'Instrumenting and restarting hooks…' : 'Restoring the original…'
       try {
         if (enabling) {
-          const source = instrument(file.name, file.source, state.analysis.probes)
+          const source = instrument(file.name, file.source, state.analysis)
           await api(`/api/dbg/instrument/${encodePath(file.name)}`, { method: 'POST', body: { source } })
         } else {
           await api(`/api/dbg/restore/${encodePath(file.name)}`, { method: 'POST' })
@@ -1008,6 +1098,7 @@
 
     async function setPaused(session) {
       state.session = session
+      state.frameSel = 0
       if (!$('pane-bps').hidden) showPanelTab('vars')
       state.evalSeq = Math.max(state.evalSeq, session.evalSeq || 0)
       if (!state.file || state.file.name !== session.file) await openFile(session.file)
@@ -1197,12 +1288,11 @@
       if (gut) toggleBreakpoint(Number(gut.parentElement.dataset.line))
     })
     $('btn-continue').addEventListener('click', () => sendCommand('continue'))
-    // The runtime's "step" pauses at the next executed line, which also
-    // enters functions in debug-enabled files: that is Step Into. A real
-    // Step Over/Out needs call-depth tracking in the runtime (later phase),
-    // so for now Step Over behaves the same.
-    $('btn-into').addEventListener('click', () => sendCommand('step'))
-    $('btn-step').addEventListener('click', () => sendCommand('step'))
+    // Into: next executed line anywhere. Over: next line in the same or a
+    // calling frame. Out: next line in a calling frame (see _dbg_runtime.js).
+    $('btn-into').addEventListener('click', () => sendCommand('into'))
+    $('btn-step').addEventListener('click', () => sendCommand('over'))
+    $('btn-out').addEventListener('click', () => sendCommand('out'))
     $('btn-eval').addEventListener('click', () => {
       showPanelTab('eval')
       $('console-input').focus()
@@ -1233,7 +1323,9 @@
     document.addEventListener('keydown', (e) => {
       if (!state.session) return
       if (e.key === 'F8') { e.preventDefault(); sendCommand('continue') }
-      if (e.key === 'F5' || e.key === 'F6') { e.preventDefault(); sendCommand('step') }
+      if (e.key === 'F5') { e.preventDefault(); sendCommand('into') }
+      if (e.key === 'F6') { e.preventDefault(); sendCommand('over') }
+      if (e.key === 'F7') { e.preventDefault(); if (frameList(state.session).length > 1) sendCommand('out') }
     })
 
     if (pb.authStore.isValid && pb.authStore.isSuperuser) startApp()

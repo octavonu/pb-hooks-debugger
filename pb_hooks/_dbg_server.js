@@ -4,6 +4,11 @@
 // pb_hooks handlers can't see functions defined at file level).
 
 const MARKER = '\n// @dbg-instrumented\n'
+// The only snippets the browser may insert: a line probe before statements,
+// and enter()/exit() wrapped around function bodies (call stack tracking).
+// Each is matched exactly.
+const ENTER_SNIPPET = '/*@dbg*/;require(__hooks+"/_dbg_runtime.js").enter();try{/*@/dbg*/'
+const EXIT_SNIPPET = '/*@dbg*/}finally{require(__hooks+"/_dbg_runtime.js").exit()}/*@/dbg*/'
 const PROBE_RE =
   /\/\*@dbg\*\/;require\(__hooks\+"\/_dbg_runtime\.js"\)\.bp\("[\w.\-]+(?:\/[\w.\-]+)*",\d+,\(__dbgx\)=>eval\(__dbgx\),\[(?:"[\w$]+"(?:,"[\w$]+")*)?\]\);\/\*@\/dbg\*\//g
 
@@ -125,7 +130,13 @@ module.exports = {
     if (typeof instrumented !== 'string' || !isInstrumented(instrumented)) {
       throw new BadRequestError('Instrumented source is missing or invalid.')
     }
-    const stripped = instrumented.slice(0, -MARKER.length).replace(PROBE_RE, '')
+    const stripped = instrumented
+      .slice(0, -MARKER.length)
+      .split(ENTER_SNIPPET)
+      .join('')
+      .split(EXIT_SNIPPET)
+      .join('')
+      .replace(PROBE_RE, '')
     if (stripped !== original || stripped.indexOf('/*@dbg*/') !== -1) {
       throw new BadRequestError('Instrumented source does not match the original.')
     }

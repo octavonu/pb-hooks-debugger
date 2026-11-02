@@ -1,9 +1,13 @@
 /// <reference path="../pb_data/types.d.ts" />
 
 // Debugger runtime. Instrumented files call bp(file, line, evalInScope, names)
-// before each line. If the line has a breakpoint (or we are stepping), the
-// current handler pauses here, via sleep(), until the UI sends a command
-// through the dbg_sessions collection.
+// before each line, and enter()/exit() around each function body. If the line
+// has a breakpoint (or we are stepping), the current handler pauses here, via
+// sleep(), until the UI sends a command through the dbg_sessions collection.
+//
+// Call stack: require() caches this module per JS VM and a VM runs one handler
+// at a time, so module-level state is per execution. `frames` is the stack of
+// instrumented functions currently running in this VM.
 
 const POLL_MS = 150
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000
@@ -12,6 +16,11 @@ const STEP_WINDOW_MS = 3000
 const BPS_KEY = 'dbg.bps'
 const STEP_KEY = 'dbg.step'
 const PAUSED_KEY = 'dbg.paused'
+
+const VM_ID = $security.randomString(10)
+// { file, line, scope, names } per running instrumented function; the probe
+// of each frame keeps its current line and a closure over its scope.
+const frames = []
 
 function breakpointIndex() {
   const store = $app.store()
@@ -175,15 +184,47 @@ function snapshot(evalInScope, names) {
   return locals
 }
 
-function pause(file, line, evalInScope, names) {
+// The step target lives in the app store (shared by all VMs) as a string:
+// "mode|vmId|depth|until". `into` stops at the next probe anywhere; `over`
+// and `out` only in the VM that paused, at the same or a lower depth.
+function readStep(store) {
+  const raw = store.get(STEP_KEY)
+  if (typeof raw !== 'string' || !raw) return null
+  const parts = raw.split('|')
+  const step = { mode: parts[0], vm: parts[1], depth: parseInt(parts[2], 10), until: parseInt(parts[3], 10) }
+  return step.until > Date.now() ? step : null
+}
+
+function stepHits(step) {
+  if (!step) return false
+  if (step.mode === 'into') return true
+  if (step.vm !== VM_ID) return false
+  return step.mode === 'over' ? frames.length <= step.depth : frames.length < step.depth
+}
+
+function stackInfo() {
+  const out = []
+  for (let i = frames.length - 1; i >= 0; i--) {
+    if (frames[i].file) out.push({ file: frames[i].file, line: frames[i].line })
+  }
+  return out
+}
+
+function pause(file, line) {
   const store = $app.store()
   store.set(PAUSED_KEY, true)
+
+  // Frame 0 is the top of the stack (where we paused).
+  const frameAt = (index) => frames[frames.length - 1 - index] || frames[frames.length - 1]
+  let selected = 0
 
   const session = new Record($app.findCollectionByNameOrId('dbg_sessions'))
   session.set('status', 'paused')
   session.set('file', file)
   session.set('line', line)
-  session.set('locals', snapshot(evalInScope, names))
+  session.set('stack', stackInfo())
+  session.set('frame', 0)
+  session.set('locals', snapshot(frameAt(0).scope, frameAt(0).names))
   $app.save(session)
 
   try {
@@ -197,24 +238,40 @@ function pause(file, line, evalInScope, names) {
       deadline = Date.now() + IDLE_TIMEOUT_MS
       current.set('command', '')
 
+      // Show the variables of another frame of the stack.
+      if (command === 'frame') {
+        const index = current.getInt('frame')
+        selected = index >= 0 && index < frames.length ? index : 0
+        current.set('frame', selected)
+        current.set('locals', snapshot(frameAt(selected).scope, frameAt(selected).names))
+        $app.save(current)
+        continue
+      }
+
       if (command === 'eval') {
+        const frame = frameAt(selected)
         let result
         try {
-          result = describe(evalInScope(current.getString('expr')), 4)
+          result = describe(frame.scope(current.getString('expr')), 4)
         } catch (err) {
           result = { type: 'error', value: String(err) }
         }
         result.seq = current.getInt('evalSeq')
         current.set('result', result)
         // The expression may have changed variables, so refresh locals too.
-        current.set('locals', snapshot(evalInScope, names))
+        current.set('locals', snapshot(frame.scope, frame.names))
         $app.save(current)
         continue
       }
 
-      // "Step" = pause at the next probe that runs, but only within the next
-      // few seconds so we don't catch an unrelated new request.
-      store.set(STEP_KEY, command === 'step' ? Date.now() + STEP_WINDOW_MS : 0)
+      // Stepping = pause at a later probe, but only within the next few
+      // seconds so we don't catch an unrelated new request.
+      const mode = command === 'step' ? 'into' : command
+      if (mode === 'into' || mode === 'over' || mode === 'out') {
+        store.set(STEP_KEY, [mode, VM_ID, frames.length, Date.now() + STEP_WINDOW_MS].join('|'))
+      } else {
+        store.set(STEP_KEY, '')
+      }
       current.set('status', 'running')
       $app.save(current)
       return
@@ -229,16 +286,39 @@ function pause(file, line, evalInScope, names) {
 }
 
 module.exports = {
+  // Called at the start of every instrumented function body.
+  enter() {
+    frames.push({ file: '', line: 0, scope: null, names: [] })
+  },
+
+  // Called from the `finally` of every instrumented function body.
+  exit() {
+    frames.pop()
+    if (frames.length) return
+    // The handler has finished in this VM: a pending step from here has
+    // nothing left to stop at, so let execution simply continue.
+    const store = $app.store()
+    const step = readStep(store)
+    if (step && step.vm === VM_ID) store.set(STEP_KEY, '')
+  },
+
   bp(file, line, evalInScope, names) {
+    // Files instrumented by an older version have no enter()/exit().
+    if (!frames.length) frames.push({ file: '', line: 0, scope: null, names: [] })
+    const top = frames[frames.length - 1]
+    top.file = file
+    top.line = line
+    top.scope = evalInScope
+    top.names = names
+
     const store = $app.store()
     // One pause at a time; also prevents nested pauses from hooks triggered
     // by saving the debug session itself.
     if (store.get(PAUSED_KEY) === true) return
 
-    const stepping = (store.get(STEP_KEY) || 0) > Date.now()
-    if (!stepping && breakpointIndex().indexOf('|' + file + ':' + line + '|') === -1) return
+    if (!stepHits(readStep(store)) && breakpointIndex().indexOf('|' + file + ':' + line + '|') === -1) return
 
-    store.set(STEP_KEY, 0)
-    pause(file, line, evalInScope, names)
+    store.set(STEP_KEY, '')
+    pause(file, line)
   },
 }
