@@ -2,7 +2,7 @@
 
 A breakpoint debugger for [PocketBase](https://github.com/pocketbase/pocketbase) JS hooks (`pb_hooks`) that runs entirely inside PocketBase itself. You don't need extra binaries, an IDE or a hosting service: drop three folders next to `pocketbase`, open `/debug/` in the browser, pick a hook file and click a line number. When you trigger the hook, the request pauses there and you can inspect variables, evaluate expressions and step through the code.
 
-![Pausing at a breakpoint, stepping into a helper in another file, evaluating an expression, inspecting the caller in the call stack, stepping out and resuming](docs/demo.gif)
+![Setting a breakpoint, stepping into a helper in a subfolder, stepping over, evaluating an expression, inspecting the caller in the call stack, stepping out and resuming](docs/demo.gif)
 
 It only uses standard JSVM APIs (`sleep()`, `$os`, `$app.store()`, realtime), so it runs on any PocketBase with JS hooks. It was tested with PocketBase **v0.40.6**, both locally (macOS) and on [PocketHost](https://pockethost.io).
 
