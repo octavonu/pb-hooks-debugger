@@ -456,6 +456,44 @@
       return pb.send(path, options)
     }
 
+    // Presence: breakpoints only pause while a debugger tab is open (see
+    // debuggerOpen() in pb_hooks/_dbg_runtime.js). The server forgets a tab
+    // 90 s after its last heartbeat, or right away when it says "bye".
+    const TAB_ID = Math.random().toString(36).slice(2) + Date.now().toString(36)
+    const HEARTBEAT_MS = 15 * 1000
+    let heartbeatTimer = null
+
+    function heartbeat() {
+      api('/api/dbg/presence', { method: 'POST', body: { tab: TAB_ID } }).catch(() => {})
+    }
+
+    function startHeartbeat() {
+      clearInterval(heartbeatTimer)
+      heartbeat()
+      heartbeatTimer = setInterval(heartbeat, HEARTBEAT_MS)
+    }
+
+    function stopHeartbeat() {
+      if (!heartbeatTimer) return
+      clearInterval(heartbeatTimer)
+      heartbeatTimer = null
+      // keepalive lets the request complete while the tab is closing.
+      try {
+        fetch(pb.buildURL('/api/dbg/presence'), {
+          method: 'POST',
+          keepalive: true,
+          headers: { 'Content-Type': 'application/json', Authorization: pb.authStore.token },
+          body: JSON.stringify({ tab: TAB_ID, bye: true }),
+        })
+      } catch {}
+    }
+
+    window.addEventListener('pagehide', stopHeartbeat)
+    // Coming back from the back/forward cache.
+    window.addEventListener('pageshow', (e) => {
+      if (e.persisted && !$('app-view').hidden) startHeartbeat()
+    })
+
     /* ------------------------------------------------------------------ */
     /* Source analysis: which lines can get probes and which vars we see */
     /* ------------------------------------------------------------------ */
@@ -1246,6 +1284,7 @@
         initLayout()
       }
       $('who').textContent = pb.authStore.record?.email || ''
+      startHeartbeat()
       try {
         await Promise.all([loadFiles(), loadBreakpoints()])
       } catch (err) {
@@ -1253,7 +1292,11 @@
         toast('Cannot load files. Are the /api/dbg routes deployed?')
       }
       await pb.collection('dbg_sessions').subscribe('*', onSessionEvent)
-      pb.realtime.subscribe('PB_CONNECT', () => setConn(true))
+      pb.realtime.subscribe('PB_CONNECT', () => {
+        setConn(true)
+        // A server restart clears the presence store; don't wait 15 s.
+        heartbeat()
+      })
       pb.realtime.onDisconnect = () => setConn(false)
       setConn(true)
       await loadActiveSession()
@@ -1262,6 +1305,7 @@
     }
 
     function logout(msg) {
+      stopHeartbeat()
       pb.realtime.unsubscribe()
       pb.authStore.clear()
       $('app-view').hidden = true

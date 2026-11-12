@@ -105,6 +105,7 @@ Goja, the JS engine inside PocketBase, has no debugging protocol, so the debugge
 - Files instrumented by an older version of the debugger have no stack tracking: click **Disable debug** and **Enable debug** again.
 - PocketBase auto-loads only `*.pb.js` hook files. Other `.js` files (e.g. helpers in subfolders) run only when a hook `require()`s them, so their breakpoints only hit then.
 - Only statements inside `{ }` blocks of functions can have breakpoints. File-level code and expression-bodied arrow functions can't.
+- Breakpoints only pause while a superuser has the debugger open. Each open tab sends a heartbeat every 15 s and a goodbye when it closes; without a heartbeat in the last 90 s, requests run through breakpoints. A forgotten breakpoint therefore can't hang real traffic, e.g. while your app keeps a hosted instance awake. (The realtime connection isn't used for this: behind a proxy the server may keep a closed tab's connection open for minutes.)
 - Only one request can be paused at a time. Other requests run through breakpoints while one is paused.
 - A paused request resumes automatically after 5 minutes of inactivity. Proxies in front of PocketBase may time out the client sooner (Cloudflare cuts responses after about 100 s), but the handler stays paused on the server.
 - `http.Header` can't be enumerated from the JSVM. Header names in the `e.request` summary come from `e.requestInfo().headers` (lowercase, `_` instead of `-`). Use `e.request.header.get('Name')` to read a specific header.

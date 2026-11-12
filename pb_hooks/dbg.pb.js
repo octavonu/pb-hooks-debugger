@@ -40,6 +40,42 @@ routerAdd(
   $apis.requireSuperuserAuth()
 )
 
+// Heartbeat from an open debugger tab; breakpoints only pause while one is
+// open (see debuggerOpen() in _dbg_runtime.js).
+routerAdd(
+  'POST',
+  '/api/dbg/presence',
+  (e) => {
+    const body = e.requestInfo().body
+    const tab = String(body.tab || '')
+    if (!/^[A-Za-z0-9]{1,40}$/.test(tab)) throw new BadRequestError('Invalid tab id.')
+    require(`${__hooks}/_dbg_runtime.js`).presence(tab, body.bye === true)
+    return e.json(200, { ok: true })
+  },
+  $apis.requireSuperuserAuth()
+)
+
+// A paused request dies with the process (Disable debug, deploy, hosted
+// instance going idle). Its session would stay "paused" and the UI would
+// show it after a reload, with commands nobody reads. Close such leftovers
+// at startup. Ended sessions are only history (every pause and every step
+// creates one), so delete them. Paused ones are marked ended rather than
+// deleted: a delete event carries the old "paused" record, which an open
+// debugger tab would show again.
+onBootstrap((e) => {
+  e.next()
+  try {
+    const paused = $dbx.hashExp({ status: 'paused' })
+    e.app.findAllRecords('dbg_sessions', $dbx.not(paused)).forEach((r) => e.app.delete(r))
+    e.app.findAllRecords('dbg_sessions', paused).forEach((r) => {
+      r.set('status', 'timeout')
+      e.app.save(r)
+    })
+  } catch (err) {
+    // Collection missing (migrations haven't run yet): nothing to clean up.
+  }
+})
+
 // The breakpoint index lives in the app store; invalidate it on any change.
 onRecordAfterCreateSuccess((e) => {
   $app.store().remove('dbg.bps')

@@ -39,6 +39,50 @@ function breakpointIndex() {
   return index
 }
 
+// A pause only makes sense when someone can resume it, i.e. a superuser has
+// the debugger UI open. Without this check a forgotten breakpoint would hang
+// real requests for minutes, e.g. after a hosted instance wakes up from idle
+// with breakpoints still set.
+//
+// Each open debugger tab posts a heartbeat to /api/dbg/presence and a "bye"
+// when it closes; we keep { tabId: lastSeenMs } in the app store. The
+// realtime connection is not a reliable signal: behind a proxy (e.g.
+// PocketHost) the server can keep a closed tab's connection for minutes.
+// The window is generous because browsers throttle timers in background
+// tabs (Chrome: about once a minute after 5 minutes hidden).
+const PRESENCE_KEY = 'dbg.presence'
+const PRESENCE_MS = 90 * 1000
+
+function readPresence(store) {
+  try {
+    const tabs = JSON.parse(store.get(PRESENCE_KEY) || '{}')
+    return tabs && typeof tabs === 'object' ? tabs : {}
+  } catch (err) {
+    return {}
+  }
+}
+
+function debuggerOpen() {
+  const tabs = readPresence($app.store())
+  const since = Date.now() - PRESENCE_MS
+  for (const tab in tabs) {
+    if (tabs[tab] > since) return true
+  }
+  return false
+}
+
+function presence(tab, bye) {
+  const store = $app.store()
+  const tabs = readPresence(store)
+  const since = Date.now() - PRESENCE_MS
+  for (const id in tabs) {
+    if (!(tabs[id] > since)) delete tabs[id]
+  }
+  if (bye) delete tabs[tab]
+  else tabs[tab] = Date.now()
+  store.set(PRESENCE_KEY, JSON.stringify(tabs))
+}
+
 // Useful hook event fields come first; `app` (the PocketBase instance),
 // `response` (the HTTP writer) and `event` are just internal noise.
 const PRIORITY_KEYS = ['record', 'collection', 'auth', 'request', 'requestEvent']
@@ -210,6 +254,17 @@ function stackInfo() {
   return out
 }
 
+// Ends a session: the status update tells the UI that execution went on,
+// then the record is deleted (each pause and step creates its own session).
+// The delete event carries the ended status, so the UI ignores it.
+function endSession(record, status) {
+  record.set('status', status)
+  $app.save(record)
+  try {
+    $app.delete(record)
+  } catch (err) {}
+}
+
 function pause(file, line) {
   const store = $app.store()
   store.set(PAUSED_KEY, true)
@@ -272,20 +327,20 @@ function pause(file, line) {
       } else {
         store.set(STEP_KEY, '')
       }
-      current.set('status', 'running')
-      $app.save(current)
+      endSession(current, 'running')
       return
     }
 
-    const timedOut = $app.findRecordById('dbg_sessions', session.id)
-    timedOut.set('status', 'timeout')
-    $app.save(timedOut)
+    endSession($app.findRecordById('dbg_sessions', session.id), 'timeout')
   } finally {
     store.set(PAUSED_KEY, false)
   }
 }
 
 module.exports = {
+  // Heartbeat ("bye" = the tab is closing) from an open debugger tab.
+  presence: presence,
+
   // Called at the start of every instrumented function body.
   enter() {
     frames.push({ file: '', line: 0, scope: null, names: [] })
@@ -319,6 +374,7 @@ module.exports = {
     if (!stepHits(readStep(store)) && breakpointIndex().indexOf('|' + file + ':' + line + '|') === -1) return
 
     store.set(STEP_KEY, '')
+    if (!debuggerOpen()) return
     pause(file, line)
   },
 }
