@@ -414,7 +414,7 @@
             </div>
             <textarea id="req-body" spellcheck="false">{"author":"debug","body":"hello from the debugger","mood":"idea"}</textarea>
             <div class="row">
-              <label><input type="checkbox" id="req-auth" /> as superuser</label>
+              <label title="Checked: sends your superuser token (Authorization header), so API rules are skipped and e.auth is your superuser in hooks, e.g. to PATCH or DELETE a message.&#10;Unchecked: sent as a guest with no auth, so API rules apply and e.auth is null, like a normal visitor.&#10;With Pause for: Only me, both pause: as a guest through the dbg cookie, as superuser through the token."><input type="checkbox" id="req-auth" /> as superuser</label>
               <span class="spacer"></span>
               <button id="req-send">Send</button>
             </div>
