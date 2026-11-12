@@ -2,3 +2,9 @@ pb_data/
 .ftp-deploy-sync-state.json
 .DS_Store
 node_modules/
+
+# PocketBase download (binary and the files from its zip; this project's
+# license is LICENSE)
+/pocketbase
+/pocketbase_*.zip
+/LICENSE.md
