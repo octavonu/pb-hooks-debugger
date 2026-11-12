@@ -124,8 +124,10 @@
     .ib.plain { color: var(--muted); }
     .iconbar { display: flex; align-items: center; gap: 2px; }
     .iconbar .sep { width: 1px; height: 18px; background: var(--border); margin: 0 5px; }
-    .pause-for { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .8rem; white-space: nowrap; }
-    .pause-for select { padding: 2px 4px; font-size: .8rem; }
+    .pause-for { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; white-space: nowrap; }
+    .pause-for button { border: 0; background: none; padding: 3px 8px; font-size: .78rem; color: var(--muted); cursor: pointer; }
+    .pause-for button + button { border-left: 1px solid var(--border); }
+    .pause-for button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 
     /* Files (tree) */
     .pane-bar { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 4px 0; }
@@ -368,13 +370,10 @@
               <svg viewBox="0 0 16 16" fill="currentColor"><text x="8" y="7" text-anchor="middle" font-size="6.6" font-weight="700" font-family="ui-monospace, Menlo, monospace">x+y</text><text x="8" y="14.6" text-anchor="middle" font-size="6.6" font-weight="700" font-family="ui-monospace, Menlo, monospace">=?</text></svg>
             </button>
             <span class="spacer"></span>
-            <label class="pause-for" title="Only me: pause only requests from this browser (dbg cookie), with the X-Dbg header, or from a superuser. Hooks without a request (cron, model hooks) need Everyone.">
-              Pause for
-              <select id="pause-for">
-                <option value="me">Only me</option>
-                <option value="all">Everyone</option>
-              </select>
-            </label>
+            <div class="pause-for" id="pause-for" role="group" aria-label="Pause for" title="Only me: pause only requests from this browser (dbg cookie), with the X-Dbg header, or from a superuser. Hooks without a request (cron, model hooks) need Everyone.">
+              <button data-v="me" aria-pressed="true">Only me</button>
+              <button data-v="all" aria-pressed="false">Everyone</button>
+            </div>
             <button class="ib plain" id="btn-token" title="Copy the X-Dbg header (for curl or an app on another origin)" aria-label="Copy the X-Dbg header">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h.5"/></svg>
             </button>
@@ -480,8 +479,15 @@
     const HEARTBEAT_MS = 15 * 1000
     let heartbeatTimer = null
 
+    let pauseFor = 'me' // 'me' | 'all'
+
     function pauseForAll() {
-      return $('pause-for').value === 'all'
+      return pauseFor === 'all'
+    }
+
+    function setPauseFor(value) {
+      pauseFor = value === 'all' ? 'all' : 'me'
+      $('pause-for').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === pauseFor)))
     }
 
     // Lax: also sent when you open a URL of this site in a new tab.
@@ -1368,11 +1374,14 @@
       if (gut) toggleBreakpoint(Number(gut.parentElement.dataset.line))
     })
     try {
-      if (localStorage.getItem('dbg.pauseFor') === 'all') $('pause-for').value = 'all'
+      setPauseFor(localStorage.getItem('dbg.pauseFor'))
     } catch {}
-    $('pause-for').addEventListener('change', () => {
+    $('pause-for').addEventListener('click', (e) => {
+      const b = e.target.closest('button')
+      if (!b || b.dataset.v === pauseFor) return
+      setPauseFor(b.dataset.v)
       try {
-        localStorage.setItem('dbg.pauseFor', $('pause-for').value)
+        localStorage.setItem('dbg.pauseFor', pauseFor)
       } catch {}
       if (heartbeatTimer) heartbeat()
     })

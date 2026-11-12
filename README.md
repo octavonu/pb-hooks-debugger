@@ -18,7 +18,7 @@ It only uses standard JSVM APIs (`sleep()`, `$os`, `$app.store()`, realtime), so
 - **Pause for: Only me** (default) pauses only your own requests: those from the browser running the debugger (it sets a secret `dbg` cookie), with its `X-Dbg` header (copy it for curl or an app on another origin), or from a superuser. Other users' requests run through breakpoints. Switch to **Everyone** to pause any request.
 - A built-in request runner, so you can trigger hooks without leaving the page.
 
-![The debugger paused inside helloWorld() in tests/test.js, with the call stack, expanded variables and the debug toolbar](docs/screenshot.jpg)
+![The debugger paused inside helloWorld() in tests/test.js, with the call stack, expanded variables, the debug toolbar and the Only me / Everyone toggle](docs/screenshot.jpg)
 
 ## Quick start
 
