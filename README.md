@@ -4,7 +4,7 @@ A breakpoint debugger for [PocketBase](https://github.com/pocketbase/pocketbase)
 
 ![Setting a breakpoint, stepping into a helper in a subfolder, stepping over, evaluating an expression, inspecting the caller in the call stack, stepping out and resuming](docs/demo.gif)
 
-It only uses standard JSVM APIs (`sleep()`, `$os`, `$app.store()`, realtime), so it runs on any PocketBase with JS hooks. It was tested with PocketBase **v0.40.6**, both locally (macOS) and on [PocketHost](https://pockethost.io).
+It only uses standard JSVM APIs (`sleep()`, `$os`, `$app.store()`, realtime), so it runs on any PocketBase with JS hooks. It was tested with PocketBase **v0.40.6** and **v0.41.1**, both locally (macOS) and on [PocketHost](https://pockethost.io).
 
 ## Features
 
@@ -47,16 +47,27 @@ You only need the debugger files. The demo message board is optional.
 
 ### Hosted instances (e.g. PocketHost)
 
-This works the same on any host that runs PocketBase with JS hooks. Upload the same folders and open `https://<your-host>/debug/`. On [PocketHost](https://pockethost.io) the [`phio`](https://pockethost.io/docs/phio) CLI does the upload:
+This works the same on any host that runs PocketBase with JS hooks. Upload the same folders and open `https://<your-host>/debug/`. On [PocketHost](https://pockethost.io) use the [`pockethost` CLI](https://pockethost.io/docs/cli) (Node.js 20+):
 
 ```sh
-npm install -g phio tsx   # phio 0.4 runs its TypeScript sources through tsx
-phio login
-phio link <your-instance>
-phio deploy
+npm install -g pockethost
+pockethost login                  # paste an API token from your PocketHost account
+pockethost link <your-instance>
+pockethost deploy
 ```
 
-> If hooks and a new migration arrive in the same upload, the instance may restart on the first hook file before the migration has landed. Migrations only run at startup. If the `dbg_*` collections are missing, restart once more, e.g. by re-uploading any hook file.
+`pockethost deploy` makes the instance's `pb_hooks`, `pb_migrations` and `pb_public` match your local folders, so **it deletes files on the instance that you don't have locally**. Run `pockethost deploy --dry-run` first. To add the debugger to an instance that already has other code, upload only its files, migrations first:
+
+```sh
+pockethost upload pb_migrations/1792866000_create_debugger.js
+pockethost upload pb_migrations/1792870000_add_dbg_session_stack.js
+pockethost upload pb_public/debug/index.html
+pockethost upload pb_hooks/_dbg_runtime.js
+pockethost upload pb_hooks/_dbg_server.js
+pockethost upload pb_hooks/dbg.pb.js
+```
+
+> Each uploaded hook file restarts the instance, and migrations only run at startup. Uploading the migrations first means they're in place when the hooks arrive. If the `dbg_*` collections are still missing, restart once more, e.g. by uploading any hook file again.
 
 ## Usage
 
@@ -96,7 +107,7 @@ Goja, the JS engine inside PocketBase, has no debugging protocol, so the debugge
 | `pb_migrations/1792866000_create_debugger.js` | `dbg_breakpoints` and `dbg_sessions` collections (superuser-only) |
 | `pb_migrations/1792870000_add_dbg_session_stack.js` | Adds the call stack fields (`stack`, `frame`) to `dbg_sessions` |
 | `pb_hooks/messages.pb.js`, `pb_public/index.html`, `pb_migrations/1792863703_create_messages.js` | Optional demo: a small realtime message board to debug |
-| `.phioconfig` | Only used by PocketHost's `phio` CLI; run `phio link` to point it at your own instance |
+| `.pockethostconfig` | Only used by the `pockethost` CLI; run `pockethost link` to point it at your own instance |
 
 ## Limitations
 
@@ -112,7 +123,7 @@ Goja, the JS engine inside PocketBase, has no debugging protocol, so the debugge
 - A paused request resumes automatically after 5 minutes of inactivity. Proxies in front of PocketBase may time out the client sooner (Cloudflare cuts responses after about 100 s), but the handler stays paused on the server.
 - `http.Header` can't be enumerated from the JSVM. Header names in the `e.request` summary come from `e.requestInfo().headers` (lowercase, `_` instead of `-`). Use `e.request.header.get('Name')` to read a specific header.
 - Probes add overhead, and enabling or disabling debug restarts the hooks. **Use it on development instances only.**
-- While a file is instrumented on a remote server, deploy tools that sync by local hash (like `phio deploy`) won't overwrite it unless the local file changed. Disable debug before real deploys.
+- A deploy (e.g. `pockethost deploy`) replaces instrumented files on the server with your local copies, which turns debug off for them. Enable debug again after deploying if you still need it.
 
 ## Security
 

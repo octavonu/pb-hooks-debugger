@@ -21,6 +21,7 @@ Notable changes to the PocketBase Hooks Debugger. There are no version numbers y
 - At startup, sessions still marked `paused` are closed. Their request died with the process, e.g. on **Disable debug**, so the UI no longer shows a dead pause after a reload.
 - A pending Step is no longer consumed by a request that isn't allowed to pause.
 - New README screenshot showing the **Only me / Everyone** toggle.
+- README: deploy to PocketHost with the new `pockethost` CLI instead of `phio`, including how to add the debugger to an existing instance without deleting its files. `.phioconfig` is now `.pockethostconfig`.
 
 ### Upgrading
 
