@@ -45,42 +45,110 @@ function breakpointIndex() {
 // with breakpoints still set.
 //
 // Each open debugger tab posts a heartbeat to /api/dbg/presence and a "bye"
-// when it closes; we keep { tabId: lastSeenMs } in the app store. The
-// realtime connection is not a reliable signal: behind a proxy (e.g.
-// PocketHost) the server can keep a closed tab's connection for minutes.
-// The window is generous because browsers throttle timers in background
-// tabs (Chrome: about once a minute after 5 minutes hidden).
+// when it closes; we keep { tabId: { t: lastSeenMs, token, all } } in the
+// app store. The realtime connection is not a reliable signal: behind a
+// proxy (e.g. PocketHost) the server can keep a closed tab's connection for
+// minutes. The window is generous because browsers throttle timers in
+// background tabs (Chrome: about once a minute after 5 minutes hidden).
+//
+// `token` is a secret per tab that the debugger also sets as the `dbg`
+// cookie, so requests from the debugging browser carry it. `all` is the
+// "Pause for: Everyone" choice; otherwise only the debugging user's own
+// requests pause (see requestAllowed()).
 const PRESENCE_KEY = 'dbg.presence'
 const PRESENCE_MS = 90 * 1000
 
-function readPresence(store) {
+function activeTabs(store) {
+  let tabs = {}
   try {
-    const tabs = JSON.parse(store.get(PRESENCE_KEY) || '{}')
-    return tabs && typeof tabs === 'object' ? tabs : {}
-  } catch (err) {
-    return {}
-  }
-}
-
-function debuggerOpen() {
-  const tabs = readPresence($app.store())
+    tabs = JSON.parse(store.get(PRESENCE_KEY) || '{}') || {}
+  } catch (err) {}
   const since = Date.now() - PRESENCE_MS
-  for (const tab in tabs) {
-    if (tabs[tab] > since) return true
-  }
-  return false
-}
-
-function presence(tab, bye) {
-  const store = $app.store()
-  const tabs = readPresence(store)
-  const since = Date.now() - PRESENCE_MS
+  const out = {}
   for (const id in tabs) {
-    if (!(tabs[id] > since)) delete tabs[id]
+    const tab = tabs[id]
+    if (tab && typeof tab === 'object' && tab.t > since) out[id] = tab
   }
+  return out
+}
+
+// null when no debugger tab is open, else whose requests may pause.
+function pauseScope() {
+  const tabs = activeTabs($app.store())
+  let open = false
+  let everyone = false
+  const tokens = []
+  for (const id in tabs) {
+    open = true
+    if (tabs[id].all) everyone = true
+    if (tabs[id].token) tokens.push(tabs[id].token)
+  }
+  return open ? { everyone: everyone, tokens: tokens } : null
+}
+
+function presence(tab, bye, token, all) {
+  const store = $app.store()
+  const tabs = activeTabs(store)
   if (bye) delete tabs[tab]
-  else tabs[tab] = Date.now()
+  else tabs[tab] = { t: Date.now(), token: token, all: all }
   store.set(PRESENCE_KEY, JSON.stringify(tabs))
+}
+
+// The probes don't receive the request, so look for the hook event in the
+// variables of the instrumented frames, outermost first: a value with a
+// `request` (router and record request events) or a `requestEvent`.
+function findRequestEvent() {
+  for (let i = 0; i < frames.length; i++) {
+    const frame = frames[i]
+    if (!frame.scope) continue
+    for (const name of frame.names) {
+      let value
+      try {
+        value = frame.scope(name)
+      } catch (err) {
+        continue
+      }
+      if (!value || typeof value !== 'object') continue
+      try {
+        if (value.request && isHttpRequest(value.request)) return value
+        const inner = value.requestEvent
+        if (inner && inner.request && isHttpRequest(inner.request)) return inner
+      } catch (err) {}
+    }
+  }
+  return null
+}
+
+// "Only me": the request must come from a superuser, or carry the token of
+// an open debugger tab (`dbg` cookie, or `X-Dbg` header for curl and apps
+// on another origin). Hooks without a request (cron, model hooks) never
+// match; use "Everyone" for those. Decided once per execution.
+function requestAllowed(tokens) {
+  const root = frames[0]
+  if (root.allowed !== undefined) return root.allowed
+  let allowed = false
+  const e = findRequestEvent()
+  if (e) {
+    try {
+      allowed = !!(e.auth && e.auth.isSuperuser())
+    } catch (err) {}
+    if (!allowed) {
+      let token = ''
+      try {
+        token = e.request.header.get('X-Dbg')
+      } catch (err) {}
+      if (!token) {
+        try {
+          token = e.request.cookie('dbg').value
+        } catch (err) {
+          // No such cookie.
+        }
+      }
+      allowed = !!token && tokens.indexOf(token) !== -1
+    }
+  }
+  root.allowed = allowed
+  return allowed
 }
 
 // Useful hook event fields come first; `app` (the PocketBase instance),
@@ -373,8 +441,13 @@ module.exports = {
 
     if (!stepHits(readStep(store)) && breakpointIndex().indexOf('|' + file + ':' + line + '|') === -1) return
 
+    // Checked before the step is consumed, so another user's request can't
+    // swallow a pending step.
+    const scope = pauseScope()
+    if (!scope) return
+    if (!scope.everyone && !requestAllowed(scope.tokens)) return
+
     store.set(STEP_KEY, '')
-    if (!debuggerOpen()) return
     pause(file, line)
   },
 }

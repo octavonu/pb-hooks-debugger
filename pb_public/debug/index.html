@@ -124,6 +124,8 @@
     .ib.plain { color: var(--muted); }
     .iconbar { display: flex; align-items: center; gap: 2px; }
     .iconbar .sep { width: 1px; height: 18px; background: var(--border); margin: 0 5px; }
+    .pause-for { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .8rem; white-space: nowrap; }
+    .pause-for select { padding: 2px 4px; font-size: .8rem; }
 
     /* Files (tree) */
     .pane-bar { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 4px 0; }
@@ -365,6 +367,17 @@
             <button class="ib" id="btn-eval" disabled title="Evaluate expression" aria-label="Evaluate expression">
               <svg viewBox="0 0 16 16" fill="currentColor"><text x="8" y="7" text-anchor="middle" font-size="6.6" font-weight="700" font-family="ui-monospace, Menlo, monospace">x+y</text><text x="8" y="14.6" text-anchor="middle" font-size="6.6" font-weight="700" font-family="ui-monospace, Menlo, monospace">=?</text></svg>
             </button>
+            <span class="spacer"></span>
+            <label class="pause-for" title="Only me: pause only requests from this browser (dbg cookie), with the X-Dbg header, or from a superuser. Hooks without a request (cron, model hooks) need Everyone.">
+              Pause for
+              <select id="pause-for">
+                <option value="me">Only me</option>
+                <option value="all">Everyone</option>
+              </select>
+            </label>
+            <button class="ib plain" id="btn-token" title="Copy the X-Dbg header (for curl or an app on another origin)" aria-label="Copy the X-Dbg header">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h.5"/></svg>
+            </button>
           </div>
           <div class="status">
             <div class="state" id="state">Running</div>
@@ -457,14 +470,36 @@
     }
 
     // Presence: breakpoints only pause while a debugger tab is open (see
-    // debuggerOpen() in pb_hooks/_dbg_runtime.js). The server forgets a tab
+    // pauseScope() in pb_hooks/_dbg_runtime.js). The server forgets a tab
     // 90 s after its last heartbeat, or right away when it says "bye".
+    //
+    // "Pause for: Only me" pauses only requests that carry this tab's secret
+    // token (the `dbg` cookie, or an `X-Dbg` header) or come from a superuser.
     const TAB_ID = Math.random().toString(36).slice(2) + Date.now().toString(36)
+    const TOKEN = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('')
     const HEARTBEAT_MS = 15 * 1000
     let heartbeatTimer = null
 
+    function pauseForAll() {
+      return $('pause-for').value === 'all'
+    }
+
+    // Lax: also sent when you open a URL of this site in a new tab.
+    function setTokenCookie() {
+      const secure = location.protocol === 'https:' ? '; Secure' : ''
+      document.cookie = `dbg=${TOKEN}; path=/; SameSite=Lax${secure}`
+    }
+
+    function clearTokenCookie() {
+      // Another debugger tab may have set its own token since.
+      if (document.cookie.split('; ').includes(`dbg=${TOKEN}`)) {
+        document.cookie = 'dbg=; path=/; max-age=0'
+      }
+    }
+
     function heartbeat() {
-      api('/api/dbg/presence', { method: 'POST', body: { tab: TAB_ID } }).catch(() => {})
+      setTokenCookie()
+      api('/api/dbg/presence', { method: 'POST', body: { tab: TAB_ID, token: TOKEN, all: pauseForAll() } }).catch(() => {})
     }
 
     function startHeartbeat() {
@@ -477,6 +512,7 @@
       if (!heartbeatTimer) return
       clearInterval(heartbeatTimer)
       heartbeatTimer = null
+      clearTokenCookie()
       // keepalive lets the request complete while the tab is closing.
       try {
         fetch(pb.buildURL('/api/dbg/presence'), {
@@ -1330,6 +1366,23 @@
     $('code').addEventListener('click', (e) => {
       const gut = e.target.closest('.gut')
       if (gut) toggleBreakpoint(Number(gut.parentElement.dataset.line))
+    })
+    try {
+      if (localStorage.getItem('dbg.pauseFor') === 'all') $('pause-for').value = 'all'
+    } catch {}
+    $('pause-for').addEventListener('change', () => {
+      try {
+        localStorage.setItem('dbg.pauseFor', $('pause-for').value)
+      } catch {}
+      if (heartbeatTimer) heartbeat()
+    })
+    $('btn-token').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(`X-Dbg: ${TOKEN}`)
+        toast('Copied the X-Dbg header. It works while this tab stays open.')
+      } catch {
+        toast(`X-Dbg: ${TOKEN}`, 10000)
+      }
     })
     $('btn-continue').addEventListener('click', () => sendCommand('continue'))
     // Into: next executed line anywhere. Over: next line in the same or a

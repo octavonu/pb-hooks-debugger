@@ -41,7 +41,8 @@ routerAdd(
 )
 
 // Heartbeat from an open debugger tab; breakpoints only pause while one is
-// open (see debuggerOpen() in _dbg_runtime.js).
+// open, and by default only for that user's requests (see pauseScope() and
+// requestAllowed() in _dbg_runtime.js).
 routerAdd(
   'POST',
   '/api/dbg/presence',
@@ -49,7 +50,9 @@ routerAdd(
     const body = e.requestInfo().body
     const tab = String(body.tab || '')
     if (!/^[A-Za-z0-9]{1,40}$/.test(tab)) throw new BadRequestError('Invalid tab id.')
-    require(`${__hooks}/_dbg_runtime.js`).presence(tab, body.bye === true)
+    const token = String(body.token || '')
+    if (body.bye !== true && !/^[a-f0-9]{32}$/.test(token)) throw new BadRequestError('Invalid token.')
+    require(`${__hooks}/_dbg_runtime.js`).presence(tab, body.bye === true, token, body.all === true)
     return e.json(200, { ok: true })
   },
   $apis.requireSuperuserAuth()

@@ -15,6 +15,7 @@ It only uses standard JSVM APIs (`sleep()`, `$os`, `$app.store()`, realtime), so
 - Evaluate expressions in the paused scope, e.g. `e.record.get('author')` or `$app.findRecordById(...)`. Expressions can also change state, e.g. `e.record.set(...)`.
 - A debug toolbar with **Resume** (F8), **Step Into** (F5), **Step Over** (F6), **Step Out** (F7) and **Evaluate**. Step Into follows calls into other debug-enabled files, e.g. a helper in a subfolder loaded with `require()`.
 - A **call stack**. Click a frame to open its file at the calling line and see that frame's variables; **Evaluate** runs in the selected frame.
+- **Pause for: Only me** (default) pauses only your own requests: those from the browser running the debugger (it sets a secret `dbg` cookie), with its `X-Dbg` header (copy it for curl or an app on another origin), or from a superuser. Other users' requests run through breakpoints. Switch to **Everyone** to pause any request.
 - A built-in request runner, so you can trigger hooks without leaving the page.
 
 ![The debugger paused inside helloWorld() in tests/test.js, with the call stack, expanded variables and the debug toolbar](docs/screenshot.jpg)
@@ -106,6 +107,7 @@ Goja, the JS engine inside PocketBase, has no debugging protocol, so the debugge
 - PocketBase auto-loads only `*.pb.js` hook files. Other `.js` files (e.g. helpers in subfolders) run only when a hook `require()`s them, so their breakpoints only hit then.
 - Only statements inside `{ }` blocks of functions can have breakpoints. File-level code and expression-bodied arrow functions can't.
 - Breakpoints only pause while a superuser has the debugger open. Each open tab sends a heartbeat every 15 s and a goodbye when it closes; without a heartbeat in the last 90 s, requests run through breakpoints. A forgotten breakpoint therefore can't hang real traffic, e.g. while your app keeps a hosted instance awake. (The realtime connection isn't used for this: behind a proxy the server may keep a closed tab's connection open for minutes.)
+- With **Only me**, hooks that don't run for a request (cron jobs, model hooks such as `onRecordAfterCreateSuccess`) never pause; switch to **Everyone** to debug them. The request is found through the hook event in the variables of the outermost debug-enabled function, so the file with the handler must be debug-enabled, not only a helper it calls.
 - Only one request can be paused at a time. Other requests run through breakpoints while one is paused.
 - A paused request resumes automatically after 5 minutes of inactivity. Proxies in front of PocketBase may time out the client sooner (Cloudflare cuts responses after about 100 s), but the handler stays paused on the server.
 - `http.Header` can't be enumerated from the JSVM. Header names in the `e.request` summary come from `e.requestInfo().headers` (lowercase, `_` instead of `-`). Use `e.request.header.get('Name')` to read a specific header.
