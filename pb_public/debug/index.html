@@ -88,6 +88,11 @@
     .conn { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .85rem; }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
     .dot.on { background: var(--ok); }
+    .idle-banner {
+      position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 11; max-width: calc(100% - 32px);
+      display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 14px; border-radius: 8px; font-size: .9rem;
+      background: var(--paused-bg); color: var(--text); border: 1px solid var(--paused-border);
+    }
     .spacer { flex: 1; }
     .main {
       display: grid; grid-template-columns: var(--left-w, 250px) minmax(0, 1fr) var(--right-w, 380px);
@@ -429,6 +434,10 @@
   </div>
 
   <div class="toast" id="toast" hidden></div>
+  <div class="idle-banner" id="idle-banner" role="status" hidden>
+    <span>Debugger idle: breakpoints are off and the instance can hibernate.</span>
+    <button id="idle-wake">Reconnect</button>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/acorn@8.19.0/dist/acorn.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pocketbase@0.28.1/dist/pocketbase.umd.js"></script>
@@ -533,7 +542,9 @@
     window.addEventListener('pagehide', stopHeartbeat)
     // Coming back from the back/forward cache.
     window.addEventListener('pageshow', (e) => {
-      if (e.persisted && !$('app-view').hidden) startHeartbeat()
+      if (!e.persisted || $('app-view').hidden) return
+      if (idle) wake()
+      else startHeartbeat()
     })
 
     /* ------------------------------------------------------------------ */
@@ -1315,8 +1326,78 @@
 
     function setConn(on) {
       $('conn-dot').classList.toggle('on', on)
-      $('conn-text').textContent = on ? 'live' : 'reconnecting…'
+      $('conn-text').textContent = on ? 'live' : idle ? 'idle' : 'reconnecting…'
     }
+
+    async function connectRealtime() {
+      await pb.collection('dbg_sessions').subscribe('*', onSessionEvent)
+      pb.realtime.subscribe('PB_CONNECT', () => {
+        setConn(true)
+        // A server restart clears the presence store; don't wait 15 s.
+        heartbeat()
+      })
+      pb.realtime.onDisconnect = () => setConn(false)
+      setConn(true)
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Idle: let a forgotten debugger tab release the instance             */
+    /* ------------------------------------------------------------------ */
+
+    // The realtime connection and the heartbeat count as open requests, so a
+    // forgotten /debug/ tab would keep a hosted instance (e.g. PocketHost)
+    // from hibernating. After IDLE_MS without input in this tab, and with no
+    // request paused, disconnect both until you come back. Breakpoints don't
+    // pause meanwhile, since the server gets no heartbeat.
+    const IDLE_MS = 2 * 60 * 1000
+    let idle = false
+    let idleTimer = null
+    let lastActivity = 0
+
+    function goIdle() {
+      if (state.session) return armIdle() // never leave a paused request
+      idle = true
+      stopHeartbeat()
+      pb.realtime.unsubscribe()
+      setConn(false)
+      $('idle-banner').hidden = false
+    }
+
+    function armIdle() {
+      clearTimeout(idleTimer)
+      idleTimer = setTimeout(goIdle, IDLE_MS)
+    }
+
+    async function wake() {
+      if (!idle) return
+      idle = false
+      $('idle-banner').hidden = true
+      startHeartbeat()
+      try {
+        await connectRealtime()
+        await loadActiveSession()
+      } catch {
+        setConn(false)
+      }
+      armIdle()
+    }
+
+    function onActivity() {
+      if ($('app-view').hidden) return
+      if (idle) return wake()
+      // Throttled: mousemove fires constantly.
+      const now = Date.now()
+      if (now - lastActivity < 1000) return
+      lastActivity = now
+      armIdle()
+    }
+
+    ;['pointerdown', 'keydown', 'wheel', 'mousemove'].forEach((type) =>
+      window.addEventListener(type, onActivity, { capture: true, passive: true })
+    )
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') onActivity()
+    })
 
     async function startApp() {
       $('login-view').hidden = true
@@ -1333,20 +1414,17 @@
         if (err?.status === 401 || err?.status === 403) return logout('Session expired. Please sign in again.')
         toast('Cannot load files. Are the /api/dbg routes deployed?')
       }
-      await pb.collection('dbg_sessions').subscribe('*', onSessionEvent)
-      pb.realtime.subscribe('PB_CONNECT', () => {
-        setConn(true)
-        // A server restart clears the presence store; don't wait 15 s.
-        heartbeat()
-      })
-      pb.realtime.onDisconnect = () => setConn(false)
-      setConn(true)
+      await connectRealtime()
+      armIdle()
       await loadActiveSession()
       const first = state.files.find((f) => !f.readonly) || state.files[0]
       if (!state.file && first) openFile(first.name)
     }
 
     function logout(msg) {
+      clearTimeout(idleTimer)
+      idle = false
+      $('idle-banner').hidden = true
       stopHeartbeat()
       pb.realtime.unsubscribe()
       pb.authStore.clear()
@@ -1368,6 +1446,7 @@
     })
 
     $('logout').addEventListener('click', () => logout())
+    $('idle-wake').addEventListener('click', wake)
     $('toggle-debug').addEventListener('click', toggleDebug)
     $('code').addEventListener('click', (e) => {
       const gut = e.target.closest('.gut')

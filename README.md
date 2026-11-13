@@ -17,6 +17,7 @@ It only uses standard JSVM APIs (`sleep()`, `$os`, `$app.store()`, realtime), so
 - A **call stack**. Click a frame to open its file at the calling line and see that frame's variables; **Evaluate** runs in the selected frame.
 - **Pause for: Only me** (default) pauses only your own requests: those from the browser running the debugger (it sets a secret `dbg` cookie), with its `X-Dbg` header (copy it for curl or an app on another origin), or from a superuser. Other users' requests run through breakpoints. Switch to **Everyone** to pause any request.
 - A built-in request runner, so you can trigger hooks without leaving the page.
+- A forgotten debugger tab doesn't keep a hosted instance awake. After 2 minutes without input in the tab, and with no request paused, the debugger disconnects (realtime and heartbeat) and shows **Debugger idle**. Breakpoints are off meanwhile, so the instance can hibernate. Click or type in the tab to reconnect.
 
 ![The debugger paused inside helloWorld() in tests/test.js, with the call stack, expanded variables, the debug toolbar and the Only me / Everyone toggle](docs/screenshot.jpg)
 
