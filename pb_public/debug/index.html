@@ -435,7 +435,7 @@
 
   <div class="toast" id="toast" hidden></div>
   <div class="idle-banner" id="idle-banner" role="status" hidden>
-    <span>Debugger idle: breakpoints are off and the instance can hibernate.</span>
+    <span>Debugger idle: breakpoints are off and the instance can hibernate. Click anywhere to reconnect.</span>
     <button id="idle-wake">Reconnect</button>
   </div>
 
@@ -542,9 +542,8 @@
     window.addEventListener('pagehide', stopHeartbeat)
     // Coming back from the back/forward cache.
     window.addEventListener('pageshow', (e) => {
-      if (!e.persisted || $('app-view').hidden) return
-      if (idle) wake()
-      else startHeartbeat()
+      if (!e.persisted || $('app-view').hidden || idle) return
+      startHeartbeat()
     })
 
     /* ------------------------------------------------------------------ */
@@ -1382,22 +1381,36 @@
       armIdle()
     }
 
-    function onActivity() {
+    // Only deliberate input wakes an idle debugger. Things that happen on
+    // their own must not: the browser fires mousemove when the page changes
+    // under a resting cursor (e.g. when the idle banner appears), and the
+    // tab becomes visible again when the screen wakes or unlocks.
+    function onInput() {
       if ($('app-view').hidden) return
       if (idle) return wake()
-      // Throttled: mousemove fires constantly.
+      armIdleThrottled()
+    }
+
+    // A real mouse movement keeps an active debugger active, but doesn't wake it.
+    let lastPointer = ''
+    function onMouseMove(e) {
+      const at = `${e.screenX},${e.screenY}`
+      if (at === lastPointer) return
+      lastPointer = at
+      if (!idle && !$('app-view').hidden) armIdleThrottled()
+    }
+
+    function armIdleThrottled() {
       const now = Date.now()
       if (now - lastActivity < 1000) return
       lastActivity = now
       armIdle()
     }
 
-    ;['pointerdown', 'keydown', 'wheel', 'mousemove'].forEach((type) =>
-      window.addEventListener(type, onActivity, { capture: true, passive: true })
+    ;['pointerdown', 'keydown', 'wheel'].forEach((type) =>
+      window.addEventListener(type, onInput, { capture: true, passive: true })
     )
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') onActivity()
-    })
+    window.addEventListener('mousemove', onMouseMove, { capture: true, passive: true })
 
     async function startApp() {
       $('login-view').hidden = true

@@ -14,7 +14,7 @@ Notable changes to the PocketBase Hooks Debugger. There are no version numbers y
 
   Other users' requests run through breakpoints. **Everyone** pauses any request, which is also needed for hooks that don't run for a request (cron jobs, model hooks such as `onRecordAfterCreateSuccess`).
 - Tooltip on **as superuser** in the request runner, explaining what it changes.
-- **Debugger idle** after 2 minutes without input in the tab, as long as no request is paused. The tab closes its realtime connection and stops the heartbeat, so a forgotten debugger tab no longer keeps a hosted instance (e.g. PocketHost) from hibernating. Breakpoints don't pause while idle. Clicking or typing in the tab reconnects.
+- **Debugger idle** after 2 minutes without input in the tab, as long as no request is paused. The tab closes its realtime connection and stops the heartbeat, so a forgotten debugger tab no longer keeps a hosted instance (e.g. PocketHost) from hibernating. Breakpoints don't pause while idle. Clicking, typing or scrolling in the tab reconnects; moving the mouse or switching back to the tab doesn't, so the debugger can't wake up on its own.
 
 ### Changed
 
